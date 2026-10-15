@@ -133,10 +133,85 @@ INVOKE_SKILL_TOOL = {
 # TODO(3.1.a): Define an OpenAI function-tool schema named ``play_move``.
 # It must accept exactly one required string argument named ``move``, explain
 # that moves use UCI notation (for example e2e4), and reject extra arguments.
-PLAY_MOVE_TOOL: dict = {}
+PLAY_MOVE_TOOL: dict = {
+  "type": "function",
+  "function": {
+    "name": "play_move",
+    "description": (
+      "Play a move in the chess game."
+    ),
+    "strict": True,
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "move": {
+          "type": "string",
+          "description": (
+            "The move to play. The move must be explained in the Universal Chess Interface protocal. For example e2e4, e7e5."
+            )
+        }
+      },
+      "required": ["move"],
+      "additionalProperties": False,
+    },
+  }
+}
 
 # TODO(3.3): Define the `simulate_move` tool, like the `play_move` tool.
-SIMULATE_MOVE_TOOL: dict = {}
+SIMULATE_MOVE_TOOL: dict = {
+  "type": "function",
+  "function": {
+    "name": "simulate_move",
+    "description": (
+      "Simulate a move in the chess game without actually playing that move."
+      "Relevant information about the simulated board can be obtained from the result"
+    ),
+    "strict": True,
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "fen": {
+          "type": "string",
+          "description": (
+            "a complete six-field FEN (Forsyth–Edwards Notation) that describes a particular board position of a chess game"
+          )
+        },
+        "move": {
+          "type": ["string", "null"],
+          "description": (
+            "the move to simulate, default to null."
+            "if no move is provided, the tool returns the information of the board specified by the current FEN."
+            "Defaults to no move."
+          )
+        }
+      },
+      "required": ["fen"],
+      "additionalProperties": False
+    },
+  }
+}
 
 # TODO()
-RUN_PYTHON_TOOL: dict = {}
+RUN_PYTHON_TOOL: dict = {
+  "type": "function",
+  "function": {
+    "name": "run_python",
+    "description": (
+      "Executing a python snippet. The snippet can call `simulate_move` and `play_move` as ordinary synchronous Python functions."
+      "The function returns a string representation of a JSON object with stdout, stderr, and error from running the code snippet."
+      "A non-zero return code means the sandbox failed, not the python code."
+    ),
+    "strict": True,
+    "parameters": {
+      "type": 'object',
+      "properties": {
+        "code": {
+          "type": "string",
+          "description": "a string of python code"
+        }
+      },
+      "required": ["code"],
+      "additionalProperties": False
+    },
+  }
+}

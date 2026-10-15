@@ -107,8 +107,10 @@ class ChessAgent(Agent):
         )
 
         # TODO(Part 3): Register the play_move tool schema from tools.py.
+        self.tools.append(PLAY_MOVE_TOOL)
 
         if programmatic_tools:
+            self.tools.append(SIMULATE_MOVE_TOOL)
             self.tools.append(RUN_PYTHON_TOOL)
 
         # run_python always executes in the sandbox, on the port the chess
@@ -135,6 +137,7 @@ class ChessAgent(Agent):
         )
         self.system_prompt = prompt_template.render()
         if programmatic_tools:
+            print("programmatic_tools enabled")
             self.system_prompt += "\n\n" + PROGRAMMATIC_CHESS_PROMPT
         if self.skills:
             catalog = "\n".join(skill["metadata"] for skill in self.skills.values())
@@ -174,7 +177,61 @@ class ChessAgent(Agent):
         # 4. Link every observation to its call with tool_call_id.
         # 5. Turn malformed, unknown, rejected, or extra parallel calls into
         #    recoverable <chess_error> observations instead of crashing.
+        output = []
+        for call in tool_calls:
+            call_func = call.get("function", {})
+            func_name = call_func.get("name")
+
+            if func_name in ["play_move", "simulate_move", "run_python", "invoke_skill"]:
+                args = call_func.get("arguments")
+                if args is None:
+                    content = "<chess_error>Missing arguments</chess_error>"
+                elif type(args) is not str:
+                    content = f"<chess_error>Expect a string representation of function arguments, but received: {type(args)}</chess_error>"
+                else:
+                    if func_name == "play_move":
+                        response = _play_move(self.chess_client, args)
+                        if "<chess_error>" in response:
+                            content = response
+                        else:
+                            response_json = json.loads(response)
+                            self.last_state = response_json
+                            content = self.format_state(response_json)
+                            self.finished = response_json.get("game_over", False)
+
+                    elif func_name == "simulate_move":
+                        response = _simulate_move(self.chess_client, args)
+                        if "<chess_error>" in response:
+                            content = response
+                        else:
+                            content = self.format_state(json.loads(response))
+
+                    elif func_name == "run_python":                        
+                        response = _run_python(self.env, self.python_sandbox_port, args)
+                        state = _game_state(self.chess_client)
+
+                        content = response
+                        self.last_state = state
+                        self.finished = state.get("game_over", False)
+
+                    elif func_name == "invoke_skill":
+                        content = _invoke_skill(self.skills, args)
+
+                    else:
+                        raise ValueError("Invalid function name")
+            else:
+                content = "<chess_error>Unknow tool call</chess_error>"
+
+            output.append(
+                {
+                    'role': 'tool',
+                    'content': content,
+                    'tool_call_id': call.get("id", "")
+                }
+            )
+
+        return output
+
 
         # TODO(Part 3.3-4): add cases for simulate_move and run_python, with
         # linked observations and recoverable errors, just like the old tool.
-        raise NotImplementedError

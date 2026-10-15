@@ -52,7 +52,36 @@ def _simulate_move(client: httpx.Client, arguments: str) -> str:
     # JSON arguments, arguments that are not an object, a missing or
     # non-string fen, a non-string move, a position or move the server rejects,
     # and a transport failure.
-    raise NotImplementedError
+    content = None
+    try:
+        arguments = json.loads(arguments)
+    except Exception as e:
+        content = f"<chess_error>Can't convert argument to json object, error: {e}</chess_error><arguments>{arguments}</arguments>"
+
+    if content is not None:
+        return f"<chess_error>{content}</chess_error>"
+
+    fen = arguments.get("fen")
+    if fen is None:
+        return "<chess_error>Missing fen</chess_error>"
+    
+    move = arguments.get("move")
+
+    if move is None:
+        res = client.post('/api/simulate', json={
+            'fen': fen
+        })
+    else:
+        res = client.post('/api/simulate', json={
+            'fen': fen,
+            'move': move
+        })
+
+    if res.is_success:
+        return res.text
+
+    error = f"<chess_error>{res.text}</chess_error><argument>{arguments}</argument>"
+    return error
 
 
 def _play_move(client: httpx.Client, arguments: str) -> str:
@@ -67,7 +96,30 @@ def _play_move(client: httpx.Client, arguments: str) -> str:
     # for the agent to address. Cover malformed JSON arguments, arguments
     # that are not an object, a missing or non-string fen, a non-string move,
     # a position or move the server rejects, and a transport failure.
-    raise NotImplementedError
+    content = None
+    try:
+        arguments = json.loads(arguments)
+    except Exception as e:
+        content = f"<chess_error>Can't convert argument to json object, error: {e}</chess_error><argument>{arguments}</argument>"
+
+    if content is not None:
+        return f"<chess_error>{content}</chess_error>"
+
+    move = arguments.get("move")
+    if move is None:
+        return f"<chess_error>Missing move argument</chess_error>"
+
+    if type(move) is not str:
+        return f"<chess_error>expecting mvoe argument to be str, but receive {type(move)}</chess_error>"
+
+    res = client.post('/api/move', json={"move": move})
+    
+    if res.is_success:
+        return res.text
+
+    return f"<chess_error>{res.text}</chess_error>"
+
+
 
 
 def _run_python(env: Any, port: int, arguments: str) -> str:
@@ -95,7 +147,42 @@ def _run_python(env: Any, port: int, arguments: str) -> str:
     #
     # Return <chess_error>{message}</chess_error> if there are issues like type
     # mismatches or parsing failures.
-    raise NotImplementedError
+    content = None
+    try:
+        arguments = json.loads(arguments)
+    except Exception as e:
+        return f"<chess_error>Can't parse arguments, got error: {e}</chess_error><argument>{arguments}</argument>"
+
+    code = arguments.get("code")
+    if code is None:
+        return "<chess_error>No python code for execution</chess_error>"
+
+    if type(code) is not str:
+        return f"<chess_error>Expecting the code snippet in the format of a string, but found {type(code)}</chess_error>"
+
+    encoded_code = base64.b64encode(code.encode()).decode('utf-8')
+    exec_result = env.execute(
+        command=f"python /opt/assignment/sandbox_python.py {port} {encoded_code}",
+    )
+
+    if exec_result.get("returncode", -1) != 0:
+        print("code: ", code)
+        print("sandbox output: ", exec_result)
+        return f"<chess_error>{exec_result["stderr"]}</chess_error>"
+
+    output = exec_result.get("stdout", "")
+    output_json = json.loads(output)
+            
+    if output_json.get("stderr", ""):
+        error = output_json['stderr']
+        return f"<chess_error>{error}</chess_error>"
+
+    if output_json.get("stdout", ""):
+        return f"<stdout>{output_json['stdout']}</stdout>"
+
+    print("can't reach this step: ", exec_result)
+    raise Exception("Impossible to happen")
+    
 
 
 def _invoke_skill(skills: dict[str, dict[str, str]], arguments: str) -> str:
@@ -103,8 +190,21 @@ def _invoke_skill(skills: dict[str, dict[str, str]], arguments: str) -> str:
     # TODO(3.5): parse the arguments and return the named skill's content.
     # Return <chess_error>{message}</chess_error> if there are issues like type
     # mismatches or parsing failures.
-    raise NotImplementedError
+    try:
+        arguments = json.loads(arguments)
+    except Exception as e:
+         return f"<chess_error>Can't parse arguments, got error: {e}</chess_error><argument>{arguments}</argument>"
 
+    skill_name = arguments.get("name")
+
+    if skill_name is None:
+         return f"<chess_error>skill name is missing</chess_error>"
+
+    if type(skill_name) is not str:
+         return f"<chess_error>Expecting skill name to be a string, but found {type(skill_name)}</chess_error>"
+
+    skill_details = skills.get(skill_name, {}).get('content', '')
+    return f"<skill>\n{skill_details}\n</skill>"
 
 def _game_state(client: httpx.Client, reset: bool = False) -> dict:
     """Read the live game, or start a new one and read the opening position."""

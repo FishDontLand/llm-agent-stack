@@ -31,8 +31,11 @@ MAX_OBSERVATION_CHARS = 10_000
 # TODO(Part 2): Write instructions that make the model produce concise working
 # memory for a software agent. The prompt should preserve concrete progress,
 # failures, test results, constraints, and next steps without copying raw output.
-COMPACTION_SYSTEM_PROMPT = ""
-
+COMPACTION_SYSTEM_PROMPT = (
+  "Your job is to compact the the current context messages. after Please give a concise factual working memory and"
+  "preserve the objective, constraints, files, commands, edits, concrete"
+  "results, failed approaches, tests, blockers, and next action."
+)
 
 class StepLimitError(Exception):
     """Raised when an agent exhausts its model-call budget."""
@@ -166,40 +169,37 @@ class Agent:
         # ``content`` of the skill file for ``invoke_skill``. Reject duplicate
         # names and malformed or missing frontmatter with a clear
         # ``ValueError``.
-        def get_skill_file(folder: Path):
+        def get_skill_files(folder: Path, output=[]) -> list[Path]:
             for path in folder.iterdir():
-                if path.is_file() and path.name.lower == "skill.md":
-                    return path
+                if path.is_file() and path.name.lower() == "skill.md":
+                    output.append(path)
+                
                 if path.is_dir():
-                    skill_found = get_skill_file(path)
-                    if skill_found is not None:
-                        return skill_found
-            return None
-
+                    get_skill_files(path, output)
+        
         skill_dict = dict()
+        all_skill_files = []
         if self.skills_path and self.skills_path.is_dir():
-            for path in self.skills_path.iterdir():
-                if path.is_dir():
-                    skill_file = get_skill_file(path)
-                    if skill_file:
-                        with open(skill_file, 'r') as f:
-                            body = f.read()
-                            frontmatter = re.search('---(.*)---', body)
-                            if frontmatter is None:
-                                raise ValueError("missing frontmatter")
+            get_skill_files(self.skills_path, all_skill_files)
+            for skill_file in all_skill_files:
+                with open(skill_file, 'r') as f:
+                    body = f.read()
+                    frontmatter = re.search('---(.*?)---', body, re.DOTALL)
+                    if frontmatter is None:
+                        print(body)
+                        raise ValueError("missing frontmatter")
 
-                            frontmatter = frontmatter.group(1)
-                            skill_name = re.search('name:(.*?)\n', frontmatter)
-                            if skill_name is None:
-                                raise ValueError("missing skill name")
-                            skill_name = skill_name.group(1).strip()
-                            if skill_name in skill_dict:
-                                raise ValueError(f"duplicate skill: {skill_name}")
-                            skill_dict[skill_name] = {
-                                'metadata': frontmatter,
-                                'content': body
-                            }
-
+                    frontmatter = frontmatter.group(1)
+                    skill_name = re.search('name:(.*?)\n', frontmatter)
+                    if skill_name is None:
+                        raise ValueError("missing skill name")
+                    skill_name = skill_name.group(1).strip()
+                    if skill_name in skill_dict:
+                        raise ValueError(f"duplicate skill: {skill_name}")
+                    skill_dict[skill_name] = {
+                        'metadata': frontmatter,
+                        'content': body
+                    }
         return skill_dict
 
 
@@ -224,7 +224,8 @@ class Agent:
         except Exception as exc:
             print(
                 f"[agent] step {step_number}: model request failed after retries "
-                f"({type(exc).__name__}: {exc})",
+                f"({type(exc).__name__}: {exc})"
+                f"last message: {messages[-1]}",
                 flush=True,
             )
             raise
@@ -272,12 +273,12 @@ class Agent:
                 }
             ]
 
-        self.prior_messages.append(
-            {
-                'role': 'user',
-                'content': self.task_prompt
-            }
-        )
+            self.prior_messages.append(
+                {
+                    'role': 'user',
+                    'content': self.task_prompt
+                }
+            )
 
         return self.prior_messages
 
@@ -317,9 +318,25 @@ class Agent:
         # with all linked tool observations. The resulting summary should change
         # what `build_prompt` emits, and reduce the length of the prompt.
 
-        raise NotImplementedError
+        begin_of_task_idx = 2
+        begin_of_latest_assist = None
+        current_context = self.build_prompt()
+        num_actions = 0
+        for idx, m in enumerate(current_context[::-1]):
+            if m["role"] == "assistant":
+                num_actions += 1
 
-        compaction_prompt = []
+            if num_actions == self.compaction_keep_recent_steps:
+                begin_of_latest_assist = len(current_context) - 1 - idx
+                break
+
+        if begin_of_latest_assist is None:
+            raise Exception("Expecting to have at least one assistant action")
+
+        compaction_prompt = current_context[:begin_of_latest_assist] + [{
+            'role': 'system',
+            'content': COMPACTION_SYSTEM_PROMPT + f" The number of tokens within the summary should not exceed {self.compaction_max_tokens}"
+        }]
 
         ### Do not modify this section ###
         compaction_response = self.client.chat.completions.create(
@@ -332,6 +349,7 @@ class Agent:
 
         # Use `compaction_response` to update what `build_prompt` emits, but
         # DO NOT modify the object itself. Let the method return it unchanged.
+        self.prior_messages = self.prior_messages[:2] + [self.process_response(compaction_response)] + self.prior_messages[begin_of_latest_assist:]
 
         ### Do not modify this section ###
         return compaction_prompt, compaction_response.model_dump(mode="json")
@@ -389,6 +407,7 @@ class Agent:
             # and handles the threshold, and tracks compaction events for
             # logging.
             while not self.finished:
+                compaction_triggered = self.maybe_compact_context()
                 message = self.query_language_model()
                 tool_calls = message.get("tool_calls", [])
                 if tool_calls:
@@ -406,12 +425,11 @@ class Agent:
                     self.prior_messages.append(
                         {
                             'role': 'assistant',
-                            'content': message
+                            'content': message.get('content', '')
                         }
-                    )  
-                    self.finished = True
+                    ) 
     
-                if self.steps_taken > self.step_limit:
+                if self.steps_taken == self.step_limit:
                     raise StepLimitError()
 
         finally:

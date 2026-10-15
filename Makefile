@@ -1,5 +1,5 @@
 .PHONY: setup doctor verify-sources test test-modal test-chess-modal check-part1 check-swebench \
-	run-code-agent run-swebench-agent run-chess-agent \
+	run-code-agent run-swebench-agent run-chess-agent run-chess-agent-custom run-chess-agent-enhanced\
 	run-obs-experiment-no-legal-moves run-obs-experiment-legal-moves \
 	run-obs-deepseek-no-legal run-obs-deepseek-legal \
 	run-obs-gpt-oss-no-legal run-obs-gpt-oss-legal \
@@ -82,6 +82,17 @@ run-chess-agent:
 	uv run assignment-play-chess --model $(MODEL) --task $(TASK) --patch $(PATCH) \
 		--step-limit $(STEPS) --sandbox-timeout $(CHESS_TIMEOUT) \
 		--trajectory $(TRAJECTORY) --result $(RESULT)
+	
+run-chess-agent-custom:
+	uv run assignment-play-chess --model $(MODEL) --task $(TASK) --patch $(PATCH) \
+		--step-limit $(STEPS) --sandbox-timeout $(CHESS_TIMEOUT) \
+		--trajectory $(TRAJECTORY) --result $(RESULT) --programmatic-tools
+
+run-chess-agent-enhanced:
+	uv run assignment-play-chess --model $(MODEL) --task $(TASK) --patch $(PATCH) \
+		--step-limit $(STEPS) --sandbox-timeout $(CHESS_TIMEOUT) \
+		--trajectory $(TRAJECTORY) --result $(RESULT) --programmatic-tools \
+		--skills-path tasks/chess-skills --trajectory artifacts/part3-python-skill-trajectory.json
 
 run-obs-experiment-no-legal-moves:
 	uv run assignment-play-chess --model $(MODEL) --task $(TASK) --patch $(PATCH) \
