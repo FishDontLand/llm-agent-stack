@@ -10,7 +10,52 @@
 
 The layouts differ because the two trainers use GPUs differently. Synchronous training alternates between sampling and updating, so colocating the two keeps both GPUs busy in both phases (SkyRL puts the sampling engines to sleep during an update and wakes them afterwards). Asynchronous training samples *while* it updates, which a colocated server cannot do, so it needs a GPU for each role. Part 5 is asynchronous too, and TextCraft-Synth episodes are long and spend most of their time sampling, so three of its four GPUs go to the sampler.
 
-The shared parts of the three deployments (the container image, the SkyRL version, the optimizer settings) live in `skyrl_server.py`. All three train with SkyRL's Megatron backend, which is the one SkyRL supports Qwen3.5 on, and sample with vLLM. The image pins a revision of [our SkyRL fork](https://github.com/adityasoni9998/SkyRL) containing the Megatron token-batched output-ordering fix and adapter-only sampler checkpoints, so that a saved LoRA snapshot is your adapter rather than a copy of the whole model. These changes are part of the pinned source; no local patch is applied during the image build. You should not need to edit any of these files.
+The shared parts of the three deployments (the container image, the SkyRL version, the optimizer settings) live in `skyrl_server.py`. All three train with SkyRL's Megatron backend, which is the one SkyRL supports Qwen3.5 on, and sample with vLLM. The image pins a revision of [our SkyRL fork](https://github.com/adityasoni9998/SkyRL) containing the Megatron token-batched output-ordering fix and adapter-only sampler checkpoints, so that a saved LoRA snapshot is your adapter rather than a copy of the whole model. The image also applies `patches/result_persistence.patch` to handle failed sampling-result database writes, as described below.
+
+## Sampling requests stuck after database failures
+
+The pinned server can leave a sampling request pending forever if generation
+finishes but saving its result fails. The October 26 server log shows SQLite
+`database is locked`, exhausted SQLAlchemy connections, and unhandled
+`call_and_store_result` exceptions. Clients then wait until their 7,200-second
+no-progress timeout, even after the database starts accepting new requests.
+
+The local patch serializes sampling completion writes within the API process,
+serializes result JSON before opening the database transaction, and retries
+SQLite lock and connection-pool errors using fresh sessions. It allows up to
+six attempts within a 180-second persistence budget (database cancellation
+cleanup can take additional time). Generation itself is not repeated. If
+persistence still fails, existing and subsequent result polls receive the
+server's normal terminal error response without relying on a working database.
+This fallback is held in API-process memory and does not survive a restart.
+Background forwarding tasks are also tracked and awaited on shutdown.
+
+This addresses stranded result requests; it does not establish the cause of
+the original database lock or fix the separate truncated HTTP responses in
+the logs. It does not change checkpoint storage or the training algorithm.
+An ongoing database failure can still fail training promptly.
+
+The patch is applied after the cached CUDA dependency build and checked against
+the pinned source. It takes effect only after redeployment. With no training
+run active, deploy TextCraft from this directory:
+
+```bash
+uv run --extra modal modal deploy serve_textcraft.py
+```
+
+CPU-only fault-injection tests can run against a checkout of the pinned SkyRL
+commit with the patch applied. From the assignment repository root:
+
+```bash
+git -C /path/to/SkyRL apply "$PWD/skyrl_tinker_modal/patches/result_persistence.patch"
+SKYRL_SOURCE_ROOT=/path/to/SkyRL uv run --no-project \
+  --with 'sqlalchemy[asyncio]' --with sqlmodel --with aiosqlite --with pytest \
+  python -m pytest skyrl_tinker_modal/tests/test_result_persistence.py -q
+```
+
+The tests load the patched persistence and retrieval methods without importing
+the GPU stack. They exercise real SQLite write locks, concurrent completions,
+pool exhaustion, terminal error delivery, missing rows, and cancellation.
 
 ## One-Time Setup
 

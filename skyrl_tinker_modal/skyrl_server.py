@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+from pathlib import Path
 
 import modal
 
@@ -164,6 +165,19 @@ image = (
         f"uv sync --extra tinker --extra {BACKEND}",
         f"python -c '{_IMPORT_CHECK}'",
         gpu="H100",
+    )
+    # Apply after the expensive dependency layer so changing this repair can
+    # reuse the CUDA build. Fail the build if the pinned source stops matching.
+    .add_local_file(
+        Path(__file__).resolve().parent / "patches" / "result_persistence.patch",
+        "/tmp/skyrl-result-persistence.patch",
+        copy=True,
+    )
+    .run_commands(
+        f"git -C {REMOTE_REPO} apply --check /tmp/skyrl-result-persistence.patch",
+        f"git -C {REMOTE_REPO} apply /tmp/skyrl-result-persistence.patch",
+        "python -m py_compile skyrl/tinker/api.py "
+        "skyrl/tinker/extra/skyrl_train_inference_forwarding.py",
     )
     # The launch scripts import this module inside the container too. Every
     # layer above is shared by the three deployments, so the image is built
