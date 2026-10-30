@@ -292,7 +292,22 @@ class AsyncGRPOTrainer:
         them with whatever happens to be current after rollout work awaits.
         """
         # TODO(student): implement this method.
-        raise NotImplementedError
+        if task_id not in self.tasks_by_id:
+            raise ValueError(f"Unrecognized task id: {task_id}!")
+
+        task = self.tasks_by_id[task_id]
+
+        group = await collect_group(policy, task, self.env_factory, self.cfg.group_size, agent_cls=self.agent_cls())
+        rewards = [traj.reward for traj in group]
+        batch, _ = groups_to_batch([group], method='grpo')
+
+        return GroupResult(
+            task_id,
+            policy_version=version,
+            sequences=batch,
+            rewards=rewards
+        )
+
 
     async def rollout_worker(
         self,
@@ -307,8 +322,13 @@ class AsyncGRPOTrainer:
 
         Do not catch errors here, let them propagate.
         """
-        # TODO(student): implement this method.
-        raise NotImplementedError
+        for task_id in task_iter:
+            group = await self.generate_group(
+                    task_id,
+                    self.policy,
+                    self.version
+            )
+            await results.put(group)
 
     async def collect_fresh_batch(
         self,
@@ -329,7 +349,17 @@ class AsyncGRPOTrainer:
         contribute no sequences.
         """
         # TODO(student): implement this method.
-        raise NotImplementedError
+        fresh_groups = list()
+        stats.setdefault('groups_dropped_stale', 0)
+        while len(fresh_groups) < self.cfg.groups_per_batch:
+            group_result = await results.get()
+            is_stale = self.version - group_result.policy_version > self.cfg.max_staleness
+            if is_stale:
+                stats['groups_dropped_stale'] += 1
+            else:
+                fresh_groups.append(group_result)
+
+        return fresh_groups
 
     async def update(self, batch: list[GroupResult]) -> dict:
         """Run one optimizer step on the training sequences of every group
@@ -345,7 +375,19 @@ class AsyncGRPOTrainer:
         method.
         """
         # TODO(student): implement this method.
-        raise NotImplementedError
+        
+        seqs = []
+        for g in batch:
+            seqs += g.sequences
+
+        train_stats = await self.session.train_step(
+            seqs,
+            self.cfg.loss_fn,
+            self.cfg.lr,
+            self.cfg.grad_clip_norm
+        )
+
+        return train_stats
 
     async def evaluate_now(self, policy: TinkerPolicy) -> dict:
         """Evaluate ``policy`` on held-out validation tasks.
@@ -362,7 +404,15 @@ class AsyncGRPOTrainer:
         also calls this method for the step-0 baseline.
         """
         # TODO(student): implement this method.
-        raise NotImplementedError
+        eval_metric = await evaluate_policy(
+            policy,
+            self.val_tasks[:self.cfg.eval_tasks],
+            self.env_factory,
+            self.cfg.eval_k,
+            agent_cls=self.agent_cls()
+        )
+
+        return eval_metric
 
     # ------------------------------------------------------------- driver --
 
@@ -398,7 +448,7 @@ class AsyncGRPOTrainer:
           done for you by scripts/train_async.py before train() is called;
         - propagate failures promptly: a rollout worker that fails must not
           leave the learner blocked waiting for a result that can no longer
-          arrive, and an evaluation task that fails must fail the run the
+          arrive, and an evaluation task tha t fails must fail the run the
           same way, not only once the last iteration is done;
         - once the last iteration is done, cancel and await the rollout
           workers (they are no longer needed; a worker that stops after this
@@ -421,4 +471,95 @@ class AsyncGRPOTrainer:
         guidance: https://docs.python.org/3/library/asyncio-task.html#task-cancellation
         """
         # TODO(student): implement this method.
-        raise NotImplementedError
+        policy = await self.publish_policy(0)
+        queue = asyncio.Queue(self.cfg.queue_capacity)
+        all_task_ids = [task.id for task in self.train_tasks]
+
+        class IdCircleIterator:
+            def __init__(self, ids: list):
+                self.ids = ids
+                self.idx = 0
+
+            def __iter__(self):
+                return self
+            
+            def __next__(self):
+                if len(self.ids) == 0:
+                    raise StopIteration
+
+                if self.idx  == len(self.ids):
+                    self.idx = 0
+
+                id = self.ids[self.idx]
+                self.idx += 1
+                return id
+
+        task_iter = IdCircleIterator(all_task_ids)
+        stats = dict()
+        try:
+            async with asyncio.TaskGroup() as tg:
+                rollout_tasks = [
+                    tg.create_task(
+                        self.rollout_worker(
+                            queue, 
+                            task_iter
+                        )
+                    ) for _ in range(self.cfg.num_workers)
+                ]
+
+                
+                stats.setdefault('groups_consumed', 0)
+                eval_task = None
+                for i in range(1, self.cfg.num_steps + 1):
+                    batch_task = tg.create_task(
+                        self.collect_fresh_batch(
+                            queue,
+                            stats
+                        )
+                    )
+                    batch = await batch_task
+
+                    stats['groups_consumed'] += len(batch)
+
+                    train_metrics = dict()
+                    if sum([len(group_result.sequences) for group_result in batch]) > 0:
+                        train_task = tg.create_task(
+                            self.update(
+                                batch
+                            )
+                        )
+                        train_metrics = await train_task
+
+                        policy_task = tg.create_task(
+                            self.publish_policy(self.version + 1)
+                        )
+                        policy = await policy_task
+
+                    self.record_training(i, batch, train_metrics)
+                    stats['train_steps'] = i
+
+
+                    if self.eval_due(i):
+                        policy, version = self.active_policy()
+                        
+                        eval_task = tg.create_task(
+                            self.run_evaluation(policy, version, i)
+                        )
+
+                for task in rollout_tasks:
+                    task.cancel()
+
+        except ExceptionGroup as e:
+            raise e.exceptions[0]
+        except Exception as otherException:
+            raise otherException
+
+        
+        return stats
+
+                
+
+
+
+
+

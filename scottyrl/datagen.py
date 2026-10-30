@@ -12,7 +12,7 @@ file, but these signatures must not change.
 
 from __future__ import annotations
 
-from scottyrl.types import TokenSequence, Trajectory
+from scottyrl.types import TokenSequence, Trajectory, LLMCall
 
 
 def extension_suffix(accumulated: list[int], prompt_tokens: list[int]) -> list[int] | None:
@@ -33,7 +33,14 @@ def extension_suffix(accumulated: list[int], prompt_tokens: list[int]) -> list[i
         extension_suffix([], [1, 2])                 -> [1, 2]  (an empty sequence is a prefix of anything)
     """
     # TODO(student): implement this function.
-    raise NotImplementedError
+    if len(accumulated) > len(prompt_tokens):
+        return None
+
+    for i in range(len(accumulated)):
+        if accumulated[i] != prompt_tokens[i]:
+            return None
+
+    return prompt_tokens[len(accumulated):]
 
 
 def stitch_trajectory(traj: Trajectory) -> list[TokenSequence]:
@@ -79,7 +86,38 @@ def stitch_trajectory(traj: Trajectory) -> list[TokenSequence]:
     Returns: list of TokenSequence (possibly empty).
     """
     # TODO(student): implement this function.
-    raise NotImplementedError
+    output = []
+
+    def init_seq(call: LLMCall) -> TokenSequence:
+        return TokenSequence(
+            tokens=call.prompt_tokens + call.completion_tokens,
+            mask=[0] * (len(call.prompt_tokens) - 1) + [1] * len(call.completion_tokens),
+            logprobs=[0.0] * (len(call.prompt_tokens) - 1) + call.completion_logprobs,
+            advantages=[0.0] * (len(call.prompt_tokens) + len(call.completion_tokens) - 1)
+        )
+
+    current_seq = None
+    for call in traj.calls:
+        if current_seq is None:
+            current_seq = init_seq(call)
+        else:
+            new_suffix = extension_suffix(current_seq.tokens, call.prompt_tokens)
+            if new_suffix:
+                current_seq.tokens += new_suffix + call.completion_tokens
+                current_seq.mask += [0] * len(new_suffix) + [1] * len(call.completion_tokens)
+                current_seq.logprobs += [0.0] * len(new_suffix) + call.completion_logprobs
+                current_seq.advantages += [0.0] * (len(new_suffix) + len(call.completion_tokens))
+            else:
+                if len(current_seq.tokens) >= 2 and max(current_seq.mask) == 1:
+                    output.append(current_seq)
+
+                current_seq = init_seq(call)
+
+    if current_seq:
+        output.append(current_seq)
+    return output
+
+
 
 
 def trajectory_to_training_sequences(traj: Trajectory, advantage: float) -> list[TokenSequence]:
@@ -89,4 +127,10 @@ def trajectory_to_training_sequences(traj: Trajectory, advantage: float) -> list
     in an episode share the episode-level advantage.)
     """
     # TODO(student): implement this function.
-    raise NotImplementedError
+    token_sequences = stitch_trajectory(traj)
+    for seq in token_sequences:
+        for i in range(len(seq.mask)):
+            if seq.mask[i] == 1:
+                seq.advantages[i] = advantage
+
+    return token_sequences

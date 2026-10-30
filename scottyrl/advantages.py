@@ -37,4 +37,30 @@ def compute_group_advantages(
     difficulty). See the handout's background section.
     """
     # TODO(student): implement this function.
-    raise NotImplementedError
+    if len(rewards) == 0:
+        raise ValueError("group size is zero!")
+    if method == "reinforce":
+        if len(rewards) > 1:
+            raise ValueError("reinforce method only accepts group size of 1")
+        return [rewards[0]]
+    elif method == "grpo":
+        if len(rewards) < 2:
+            raise ValueError("grpo requires group size >= 2!")
+
+        is_identical = True
+        for i in range(1, len(rewards)):
+            if rewards[i] != rewards[0]:
+                is_identical = False
+                break
+
+        if is_identical:
+            return None
+
+        group_mean = sum(rewards) / len(rewards)
+
+        normalized_rewards = [r - group_mean for r in rewards]
+        return normalized_rewards
+                
+            
+        
+
