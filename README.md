@@ -25,7 +25,24 @@ Use Python 3.12 and [uv](https://docs.astral.sh/uv/). Run each command from the 
 (cd training && uv sync --locked && uv run --locked pytest)
 ```
 
-These checks run locally. The component guides cover API keys and compute setup for live inference, evaluation, and training. To import all three packages in a single activated environment, run `uv pip install ./harness ./evaluation ./training`.
+These checks run locally. To import all three packages in a single activated environment, run `uv pip install ./harness ./evaluation ./training`.
+
+## Set up Modal for live runs
+
+Create a Modal account and choose a workspace. From `harness/` or `evaluation/`, install the locked dependencies and sign in.
+
+```bash
+uv sync --locked --python 3.12
+uv run --locked modal setup
+uv run --locked modal profile current
+uv run --locked modal token info
+```
+
+Modal stores the CLI login locally so you can reuse it across all three components. If you start in `training/`, add `--extra modal` to both the `uv sync` and `uv run` commands because the Modal CLI is optional there. [Modal setup guide](https://modal.com/docs/guide/getting-started)
+
+- **Agent harness.** From `harness/`, run `git submodule update --init -- chess_app` and copy `.env.example` to `.env`. Set `OPENAI_BASE_URL`, `OPENAI_API_KEY`, and `OPENAI_MODEL` for your model provider. Run `uv run --locked agent-harness-doctor` before launching a sandbox. [Harness run guide](harness/README.md)
+- **Agent evaluation.** From `evaluation/`, run `bash scripts/deploy_validator_model.sh` and copy `.env.example` to `.env`. Set `VALIDATOR_BASE_URL` to the deployed URL with `/v1` appended and leave `VALIDATOR_MODEL=validator`. Create a Modal proxy token in your workspace and set `VALIDATOR_API_KEY` to its combined `<token-id>.<token-secret>` value. For generating new trajectories, follow the guide for the model endpoints and agent runner. [Proxy tokens](https://modal.com/docs/guide/webhook-proxy-auth) · [Evaluation deployment guide](evaluation/infrastructure/README.md)
+- **Agent training.** From `training/`, run `uv sync --locked --extra modal`. The SkyRL guide shows which launcher to deploy and how to set `TINKER_BASE_URL` to the exact URL printed by Modal. The Number Search profiles use two H100s, and the TextCraft profile uses four. [SkyRL on Modal](training/skyrl_tinker_modal/README.md#one-time-setup) · [Training commands](training/README.md)
 
 ## Attribution
 
