@@ -1,0 +1,172 @@
+--- a/skyrl/tinker/extra/skyrl_train_inference_forwarding.py
++++ b/skyrl/tinker/extra/skyrl_train_inference_forwarding.py
+@@ -8,6 +8,7 @@
+ from datetime import datetime, timezone
+ 
+ import httpx
++from sqlalchemy.exc import OperationalError, TimeoutError as PoolTimeoutError
+ from sqlmodel.ext.asyncio.session import AsyncSession
+ 
+ from skyrl.backends.renderer import render_model_input
+@@ -26,6 +27,10 @@
+         self.db_engine = db_engine
+         self._cached_proxy_url: str | None = None
+         self._cache_lock = asyncio.Lock()
++        # Completion writes are short, but a burst must not occupy every DB
++        # connection while SQLite waits for its single writer. GPU requests
++        # remain concurrent; only this process's completion writes serialize.
++        self._result_write_lock = asyncio.Lock()
+         # Backpressure layered: httpx pool -> vllm-router -> vLLM max_num_seqs.
+         # Default `forwarding_inference_max_connections=None` is unlimited;
+         # the only cost is file descriptors (raise `ulimit -n` accordingly).
+@@ -80,18 +85,42 @@
+             result = types.ErrorResponse(error=str(e), status="failed")
+             status = RequestStatus.FAILED
+ 
+-        async with AsyncSession(self.db_engine) as session:
+-            future = await session.get(FutureDB, request_id)
+-            if future is None:
+-                # Row was deleted between scheduling and completion (cancelled
+-                # request, stale-session GC). Nothing to write back.
+-                logger.warning("FutureDB row %s missing on completion write — skipping", request_id)
++        # Serialize before opening a DB transaction. Never repeat generation
++        # just because persisting its already-computed result failed.
++        result_data = result.model_dump_json()
++        async with asyncio.timeout(180):
++            await self._store_result_with_retry(request_id, result_data, status)
++
++    async def _store_result_with_retry(self, request_id, result_data, status):
++        for attempt in range(6):
++            try:
++                async with self._result_write_lock:
++                    # A failed SQLite transaction must be closed/rolled back
++                    # before retrying; reusing the session cannot recover it.
++                    async with AsyncSession(self.db_engine) as session:
++                        future = await session.get(FutureDB, request_id)
++                        if future is None:
++                            logger.warning("FutureDB row %s missing on completion write", request_id)
++                            raise RuntimeError(f"FutureDB row {request_id} missing on completion write")
++                        future.result_data = result_data
++                        future.status = status
++                        future.completed_at = datetime.now(timezone.utc)
++                        await session.commit()
+                 return
+-            # `result_data` is a text column holding pre-serialized JSON.
+-            future.result_data = result.model_dump_json()
+-            future.status = status
+-            future.completed_at = datetime.now(timezone.utc)
+-            await session.commit()
++            except (OperationalError, PoolTimeoutError) as exc:
++                locked = isinstance(exc, OperationalError) and any(
++                    message in str(exc.orig).lower()
++                    for message in ("database is locked", "database table is locked")
++                )
++                if not (locked or isinstance(exc, PoolTimeoutError)) or attempt == 5:
++                    raise
++                delay = min(2 ** attempt, 8)
++                logger.warning(
++                    "Retrying result write for request %s in %ss (attempt %s): %s",
++                    request_id, delay, attempt + 1, exc,
++                )
++                # Release the connection and writer lock before backoff.
++                await asyncio.sleep(delay)
+ 
+     async def _forward_with_retry(self, sample_req, model_id: str, *, base_model: str | None) -> types.SampleOutput:
+         # httpx.RequestError covers ConnectError, ReadError, TimeoutException, etc.
+--- a/skyrl/tinker/api.py
++++ b/skyrl/tinker/api.py
+@@ -114,6 +114,34 @@
+             remaining.discard(waiter)
+             if not remaining:
+                 del waiters[request_id]
++
++
++def finish_forwarded_request(task, request_id, waiters, failures):
++    """Surface a failed completion writer even when the DB cannot record FAILED.
++
++    Keep the terminal error for later retrieval/retries in this API process.
++    Existing waiters are resolved directly, without needing a working DB poller.
++    """
++    if task.cancelled():
++        return
++    error = task.exception()  # Retrieve it; never leave an orphan task error.
++    if error is None:
++        return
++    logger.error(
++        "Forwarded request %s could not persist its result: %s",
++        request_id, error, exc_info=(type(error), error, error.__traceback__),
++    )
++    outcome = (
++        RequestStatus.FAILED,
++        types.ErrorResponse(
++            error=f"Server could not persist sampling result {request_id}: {type(error).__name__}: {error}",
++            status="failed",
++        ).model_dump_json(),
++    )
++    failures[request_id] = outcome
++    for waiter in waiters.pop(request_id, ()):
++        if not waiter.done():
++            waiter.set_result(outcome)
+ 
+ 
+ async def poll_futures(
+@@ -230,6 +258,8 @@
+         await conn.run_sync(SQLModel.metadata.create_all)
+ 
+     app.state.future_waiters = {}
++    app.state.forwarding_failures = {}
++    app.state.forwarding_tasks = set()
+     app.state.future_poller = asyncio.create_task(poll_futures(app.state.db_engine, app.state.future_waiters))
+ 
+     # Setup external inference client if configured.
+@@ -309,6 +339,11 @@
+     with suppress(asyncio.CancelledError):
+         await app.state.future_poller
+ 
++    tasks = list(app.state.forwarding_tasks)
++    for task in tasks:
++        task.cancel()
++    await asyncio.gather(*tasks, return_exceptions=True)
++
+     # Close the forwarding client's persistent httpx connection pool if we
+     # installed one. Cheap no-op when external_inference_client doesn't own
+     # an httpx client (ExternalInferenceClient creates one per call).
+@@ -1292,11 +1327,19 @@
+     await session.commit()
+ 
+     if req.app.state.external_inference_client:
+-        asyncio.create_task(
+-            req.app.state.external_inference_client.call_and_store_result(
++        state = req.app.state
++        task = asyncio.create_task(
++            state.external_inference_client.call_and_store_result(
+                 request_id, request, model_id, checkpoint_id, base_model=base_model
+             )
+         )
++        state.forwarding_tasks.add(task)
++
++        def finished(task):
++            state.forwarding_tasks.discard(task)
++            finish_forwarded_request(task, request_id, state.future_waiters, state.forwarding_failures)
++
++        task.add_done_callback(finished)
+ 
+     return FutureResponse(future_id=str(request_id), status="pending", request_id=str(request_id))
+ 
+@@ -1319,10 +1362,12 @@
+     """Retrieve the result of an async operation, waiting until it's available."""
+     request_id = int(request.request_id)
+ 
+-    try:
+-        row = await wait_for_future(req.app.state.future_waiters, request_id, RETRIEVE_FUTURE_TIMEOUT_SECONDS)
+-    except KeyError:
+-        raise HTTPException(status_code=404, detail="Future not found")
++    row = req.app.state.forwarding_failures.get(request_id)
++    if row is None:
++        try:
++            row = await wait_for_future(req.app.state.future_waiters, request_id, RETRIEVE_FUTURE_TIMEOUT_SECONDS)
++        except KeyError:
++            raise HTTPException(status_code=404, detail="Future not found")
+ 
+     if row is None:
+         raise HTTPException(status_code=408, detail="Timeout waiting for result")
