@@ -14,20 +14,32 @@ I built three pieces of the LLM agent development workflow: a ReAct harness for 
 - **Chart evaluation.** The included benchmark has **110 runs with human labels**. The evaluator reports per-category confusion counts and Matthews correlation, with execution failures scored separately from chart quality. [Labels](evaluation/seed_labels.json) · [Scoring code](evaluation/agent_evaluation/workflow/evaluate.py)
 - **RL post-training.** In the reported experiments, Dr.GRPO fine-tuning improved single-attempt TextCraft success from **17% to 60%**. Asynchronous rollouts reduced time per training iteration by **23%** in a separate comparison. [TextCraft configuration](training/configs/textcraft_grpo.yaml) · [Asynchronous trainer](training/agent_training/train/async_grpo.py)
 
-## Run locally
+## Quick start
 
-Use Python 3.12 and [uv](https://docs.astral.sh/uv/). Run each command from the repository root.
+Install Git and [uv](https://docs.astral.sh/uv/). These commands use Bash. On Windows, use WSL or Git Bash.
 
 ```bash
-(cd harness && uv sync --locked && uv run --locked pytest)
-(cd evaluation && uv sync --locked &&
+git clone https://github.com/FishDontLand/llm-agent-stack.git
+cd llm-agent-stack
+uv python install 3.12
+
+(cd harness && uv sync --locked --python 3.12 && uv run --locked pytest)
+(cd evaluation && uv sync --locked --python 3.12 &&
   uv run --locked agent-eval validate-labels --labels seed_labels.json --artifacts artifacts)
-(cd training && uv sync --locked && uv run --locked pytest)
+(cd training && uv sync --locked --python 3.12 && uv run --locked pytest)
 ```
 
-These checks run locally. To import all three packages in a single activated environment, run `uv pip install ./harness ./evaluation ./training`.
+The checks above use the bundled test data and need no cloud accounts or API keys. To import all three packages in a single activated environment, run `uv pip install ./harness ./evaluation ./training`.
 
-## Set up Modal for live runs
+## Environment setup for live runs
+
+| Component | What to configure before running | From setup to first result |
+| --- | --- | --- |
+| **Agent harness** | Modal CLI login, an OpenAI-compatible endpoint that supports tool calling, and `OPENAI_BASE_URL`, `OPENAI_API_KEY`, and `OPENAI_MODEL` in `harness/.env`. Initialize the pinned `chess_app` submodule for chess tasks. | [Harness setup, patch verification, and chess run](harness/README.md) · [.env template](harness/.env.example) |
+| **Agent evaluation** | Modal CLI login and a deployed multimodal vLLM validator, or an existing compatible endpoint. Set `VALIDATOR_BASE_URL`, `VALIDATOR_API_KEY`, and `VALIDATOR_MODEL` in `evaluation/.env`. Modal endpoints use a workspace proxy token. The generation models and agent runner are needed only for creating new trajectories. | [Judge a saved run and score the benchmark](evaluation/README.md) · [Deploy on Modal](evaluation/infrastructure/README.md) · [.env template](evaluation/.env.example) |
+| **Agent training** | A Tinker-compatible backend that serves the model in the training YAML. For hosted Tinker, set `TINKER_API_KEY`. For SkyRL on Modal, install the `modal` extra, deploy the launcher that matches the YAML, and set `TINKER_BASE_URL` to the URL printed by Modal. The Number Search launchers request two H100s and the TextCraft launcher requests four. | [Training setup, short probe, and checkpoint evaluation](training/README.md) · [SkyRL deployment and cleanup](training/skyrl_tinker_modal/README.md) |
+
+### Sign in to Modal
 
 Create a Modal account and choose a workspace. From `harness/` or `evaluation/`, install the locked dependencies and sign in.
 
@@ -39,10 +51,6 @@ uv run --locked modal token info
 ```
 
 Modal stores the CLI login locally so you can reuse it across all three components. If you start in `training/`, add `--extra modal` to both the `uv sync` and `uv run` commands because the Modal CLI is optional there. [Modal setup guide](https://modal.com/docs/guide/getting-started)
-
-- **Agent harness.** From `harness/`, run `git submodule update --init -- chess_app` and copy `.env.example` to `.env`. Set `OPENAI_BASE_URL`, `OPENAI_API_KEY`, and `OPENAI_MODEL` for your model provider. Run `uv run --locked agent-harness-doctor` before launching a sandbox. [Harness run guide](harness/README.md)
-- **Agent evaluation.** From `evaluation/`, run `bash scripts/deploy_validator_model.sh` and copy `.env.example` to `.env`. Set `VALIDATOR_BASE_URL` to the deployed URL with `/v1` appended and leave `VALIDATOR_MODEL=validator`. Create a Modal proxy token in your workspace and set `VALIDATOR_API_KEY` to its combined `<token-id>.<token-secret>` value. For generating new trajectories, follow the guide for the model endpoints and agent runner. [Proxy tokens](https://modal.com/docs/guide/webhook-proxy-auth) · [Evaluation deployment guide](evaluation/infrastructure/README.md)
-- **Agent training.** From `training/`, run `uv sync --locked --extra modal`. The SkyRL guide shows which launcher to deploy and how to set `TINKER_BASE_URL` to the exact URL printed by Modal. The Number Search profiles use two H100s, and the TextCraft profile uses four. [SkyRL on Modal](training/skyrl_tinker_modal/README.md#one-time-setup) · [Training commands](training/README.md)
 
 ## Attribution
 

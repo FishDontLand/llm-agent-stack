@@ -1,6 +1,6 @@
 # Self-Hosting the Training Backend with SkyRL and Modal
 
-The training package supports Tinker-compatible endpoints, including [SkyRL's Tinker server](https://docs.skyrl.ai/docs/tinker/overview), which you deploy yourself on [Modal](https://modal.com/) GPUs. This directory contains one launch script for each kind of run in the assignment. Each script requests the GPUs its runs need and splits them between training and sampling to suit those runs.
+The training package supports SkyRL's Tinker server on Modal GPUs. Each launcher requests GPUs and allocates them between the learner and sampler for the corresponding experiment. [SkyRL's Tinker server](https://docs.skyrl.ai/docs/tinker/overview)
 
 | Launch script | Use it for | GPUs | Layout |
 |---|---|---|---|
@@ -8,7 +8,7 @@ The training package supports Tinker-compatible endpoints, including [SkyRL's Ti
 | `serve_number_search_async.py` | Asynchronous Number Search | 2x H100 | split: 1 trains, 1 samples |
 | `serve_textcraft.py` | TextCraft training and evaluation | 4x H100 | split: 1 trains, 3 sample |
 
-The layouts differ because the two trainers use GPUs differently. Synchronous training alternates between sampling and updating, so colocating the two keeps both GPUs busy in both phases (SkyRL puts the sampling engines to sleep during an update and wakes them afterwards). Asynchronous training samples *while* it updates, which a colocated server cannot do, so it needs a GPU for each role. Part 5 is asynchronous too, and TextCraft-Synth episodes are long and spend most of their time sampling, so three of its four GPUs go to the sampler.
+Synchronous training alternates between sampling and updating, so both GPUs can handle both phases. Asynchronous training samples during policy updates and uses separate GPUs for the learner and sampler. TextCraft episodes spend most of their time sampling, so its launcher allocates three of the four GPUs to inference.
 
 The shared parts of the three deployments (the container image, the SkyRL version, the optimizer settings) live in `skyrl_server.py`. All three train with SkyRL's Megatron backend, which is the one SkyRL supports Qwen3.5 on, and sample with vLLM. The image pins a revision of [our SkyRL fork](https://github.com/adityasoni9998/SkyRL) containing the Megatron token-batched output-ordering fix and adapter-only sampler checkpoints, so that a saved LoRA snapshot is your adapter rather than a copy of the whole model. The image also applies `patches/result_persistence.patch` to handle failed sampling-result database writes, as described below.
 
@@ -40,7 +40,7 @@ the pinned source. It takes effect only after redeployment. With no training
 run active, deploy TextCraft from this directory:
 
 ```bash
-uv run --extra modal modal deploy serve_textcraft.py
+uv run --locked --extra modal modal deploy serve_textcraft.py
 ```
 
 CPU-only fault-injection tests can run against a checkout of the pinned SkyRL
@@ -59,59 +59,56 @@ pool exhaustion, terminal error delivery, missing rows, and cancellation.
 
 ## One-Time Setup
 
-Create a Modal account, then install and authenticate the Modal CLI:
+Create a Modal account and select a workspace with enough H100 capacity for your launcher. Run these commands from `training/`.
 
 ```bash
-uv sync --extra modal
-uv run modal setup
+uv sync --locked --python 3.12 --extra modal
+uv run --locked --extra modal modal setup
+uv run --locked --extra modal modal profile current
+uv run --locked --extra modal modal token info
 ```
 
-Modal is an optional extra, so a plain `uv sync` later on removes it again. If `uv run modal` stops working, run `uv sync --extra modal` once more.
+Include `--extra modal` on commands that need the Modal CLI. The trainer itself only needs the Tinker client.
 
-Run all the commands below from this directory:
+The first deployment builds a container image with SkyRL, Megatron, and their CUDA dependencies on an H100. The launcher profiles share the cached image. The optional installation check also uses one H100.
 
 ```bash
-cd skyrl_tinker_modal
+(cd skyrl_tinker_modal && uv run --locked --extra modal modal run serve_number_search_sync.py::smoke_install)
 ```
 
-The first deployment builds a container image with SkyRL, Megatron, and their CUDA dependencies. This is a download of many gigabytes, so expect it to take 20 minutes or more. The build runs on one H100, so it costs about as much as that GPU for the same time. The image is shared by all three scripts and cached by Modal, so you only wait and pay once. If you want to build it ahead of time and check that it works, run the optional smoke test, which builds the image if needed and then uses one H100 for a few more minutes:
+## Deploy and connect
+
+**1. Deploy the launcher that matches your YAML.** From `training/`, deploy the synchronous Number Search server like this.
 
 ```bash
-uv run modal run serve_number_search_sync.py::smoke_install
+(cd skyrl_tinker_modal && uv run --locked --extra modal modal deploy serve_number_search_sync.py)
 ```
 
-## Running a Part
+Use the asynchronous Number Search launcher for `configs/number_search_async*.yaml` and the TextCraft launcher for `configs/textcraft_grpo.yaml`. The server defaults to `Qwen/Qwen3.5-4B`. If you set `SKYRL_BASE_MODEL` before deployment, use that exact model ID in the training config as well.
 
-**1. Deploy the server for your run.** For example, for synchronous Number Search:
+The included launchers expose a public Modal endpoint. Anyone with the URL can send requests while the app is deployed. A workspace that blocks public web functions will reject this deployment. [Modal web endpoint authentication](https://modal.com/docs/guide/webhook-proxy-auth)
+
+**2. Set the client endpoint.** Still in `training/`, replace the example with the exact `tinker_server` URL printed by the deployment. Use the base URL without a `/v1` suffix. Unset a hosted Tinker key when using this SkyRL deployment.
 
 ```bash
-uv run modal deploy serve_number_search_sync.py
+export TINKER_BASE_URL='https://YOUR-DEPLOYMENT.modal.run'
+unset TINKER_API_KEY
 ```
 
-Modal prints the URL of the deployment. Apart from the one-time image build, deploying costs nothing by itself: the server scales to zero, and GPUs are only allocated once a training run connects.
+The first request starts the container and loads the model. Once `TINKER_BASE_URL` is set, run the connection check and the short probe in the training guide. [Training guide](../README.md#connect-to-a-backend)
 
-**2. Point `agent_training` at it and train.** From the repo root:
-
-```bash
-export TINKER_BASE_URL=https://<your-workspace>--agent-training-ns-sync-tinker-server.modal.run
-uv run python scripts/train_sync.py --config configs/number_search_grpo.yaml
-```
-
-Copy the exact URL that `modal deploy` printed. It normally has the form above.
-
-The first request starts the container, loads the model, and brings up the sampling engines. Expect to wait several minutes before the step-0 evaluation begins. Later runs against a warm server start right away.
-
-**3. Stop the server when you are done.** An idle server shuts down by itself after five minutes, but you pay for those minutes. To stop it immediately:
+**3. Stop the server when you finish.** From `training/`, list the apps and stop the one you deployed.
 
 ```bash
-uv run modal app stop agent-training-ns-sync
+uv run --locked --extra modal modal app list
+uv run --locked --extra modal modal app stop agent-training-ns-sync
 ```
 
 Stopping removes the deployment, so run `uv run modal deploy ...` again before your next run. This takes seconds because the image is cached, and the URL stays the same. Your checkpoints live on a volume and are not affected.
 
 The app names are `agent-training-ns-sync`, `agent-training-ns-async`, and `agent-training-textcraft`. You can see what is running, and what it has cost so far, in the Modal dashboard.
 
-## Running Parts in Parallel
+## Run profiles in parallel
 
 The three launch scripts are separate Modal apps, each with its own URL, GPUs, and checkpoint volume, so you can run one part on each of them at the same time without any extra setup. You only need a second app name when you want two runs on the *same* launcher, for example `p2a` and `p41`, which both use the synchronous server. Set `SKYRL_APP_NAME` when deploying either Number Search launcher:
 
@@ -171,7 +168,7 @@ If you ever change GPU placement, keep it consistent with Modal's GPU allocation
 
 ## What It Costs
 
-At Modal's list price of roughly $4 per H100-hour, each Number Search server costs about $8 per hour and the TextCraft server about $16 per hour while a container is up. Please check [Modal's pricing](https://modal.com/pricing) for current numbers. A few habits keep the bill small:
+Image builds and live GPU containers can incur charges. The two-GPU Number Search and four-GPU TextCraft servers scale to zero after five idle minutes. [Modal pricing](https://modal.com/pricing)
 
 - Get your code passing the tests locally before you deploy anything. The tests need no GPU.
 - Do a short probe before every full run. A crash at step 2 of a probe is much cheaper than a crash at step 40 of the real thing.

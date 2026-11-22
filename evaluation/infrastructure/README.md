@@ -1,22 +1,23 @@
 # Evaluation endpoints on Modal
 
-These deployments serve the validator, generation models, and agent runner.
-Each Modal workspace has its own apps, volumes, endpoints, and usage charges.
+These deployments serve the validator, generation models, and agent runner. Use the same Modal workspace and environment for all three deployments and the runner client.
 
-From the evaluation directory:
+## Deploy the validator
+
+Run from `evaluation/`. To judge the bundled trajectories, deploy just the validator.
 
 ```bash
-uv sync
-uv run modal setup
-scripts/deploy_validator_model.sh
-scripts/deploy_generation_models.sh  # generation model servers
-# Fill in the generation endpoint settings in .env.
-scripts/deploy_agent_runner.sh       # gateway and mini-SWE-agent runner
+uv sync --locked --python 3.12
+uv run --locked modal setup
+uv run --locked modal token info
+bash scripts/deploy_validator_model.sh
 ```
 
-The validator deployment serves `Qwen/Qwen3-VL-30B-A3B-Instruct-FP8` with the
-stable model alias `validator`. The generation deployment creates three
-independently scaling containers:
+This app serves `Qwen/Qwen3-VL-30B-A3B-Instruct-FP8` on one L40S with the alias `validator`. Copy `.env.example` to `.env` and set `VALIDATOR_BASE_URL` to the URL printed for `ValidatorServer.serve` with `/v1` appended. Set `VALIDATOR_API_KEY` to a proxy token from that workspace in `<token-id>.<token-secret>` form. The CLI login authorizes deploying apps and the proxy token authenticates HTTP requests to them. [Create a proxy token](https://modal.com/docs/guide/webhook-proxy-auth) · [Run the judge](../README.md#configure-the-judge-endpoint)
+
+## Generate new trajectories
+
+Use these steps when you want the bundled agent runner to create new runs. The generation app deploys these independently scaling endpoints.
 
 | Endpoint class | Model | Alias | GPU |
 | --- | --- | --- | --- |
@@ -24,26 +25,46 @@ independently scaling containers:
 | `MinistralServer` | `mistralai/Ministral-3-14B-Instruct-2512` | `ministral` | L40S |
 | `GlmServer` | `zai-org/GLM-4.7-Flash` | `glm-4.7` | H100 |
 
-All endpoints require Modal proxy authentication and expose vLLM's
-OpenAI-compatible API. Copy `.env.example` to `.env`, append `/v1` to the
-validator URL printed by Modal, and add a Modal proxy token in combined
-`<token-id>.<token-secret>` form.
+```bash
+bash scripts/deploy_generation_models.sh
+```
 
-The apps scale to zero after five idle minutes. Deploying creates stable URLs;
-the first request after an idle period starts a GPU container and may take
-several minutes while the model loads. A completely empty GLM cache can take
-about 12 minutes on its first run because it downloads roughly 58 GiB of model
-weights; later starts reuse the workspace volumes and compile cache.
+Copy `.env.example` to `.env` if you have not done so already. Set `GENERATION_QWEN_BASE_URL`, `GENERATION_MINISTRAL_BASE_URL`, and `GENERATION_GLM_BASE_URL` to the URLs printed for `QwenServer.serve`, `MinistralServer.serve`, and `GlmServer.serve`, respectively, each with `/v1` appended. Set `GENERATION_API_KEY` to the proxy token in the same combined format.
 
-For generation, append `/v1` to each URL printed for `QwenServer.serve`,
-`MinistralServer.serve`, and `GlmServer.serve`. Put them in `.env` as
-`GENERATION_QWEN_BASE_URL`, `GENERATION_MINISTRAL_BASE_URL`, and
-`GENERATION_GLM_BASE_URL`, respectively, and set `GENERATION_API_KEY` to the
-combined proxy token. Use `uv run agent-eval generate --help` to see the generation options.
+```bash
+bash scripts/deploy_agent_runner.sh
+```
 
 `deploy_agent_runner.sh` stores those settings in the private Modal secret
-`agent-eval-generation-endpoints`, deploys `generation_gateway.py` with access to that
-secret, and deploys `agent_runner.py` without it. The latter is the original
-`mini-swe-agent==2.4.5` bash-tool scaffold used for the released trajectories;
-agent-written commands execute in its fresh Modal container and cannot read the
-generation endpoint credentials.
+`agent-eval-generation-endpoints`. It deploys the gateway with the endpoint credentials and runs agent commands in separate containers.
+
+From `evaluation/`, create a sample task and generate one trajectory using Qwen.
+
+```bash
+mkdir -p tasks/sample-chart
+cat > tasks/sample-chart/task.json <<'JSON'
+{
+  "task_id": "sample-chart",
+  "task_class": "bar-chart",
+  "instructions": "Plot Apples: 3 and Oranges: 5 as a bar chart. Label the y-axis Count and save the figure as figure.png.",
+  "inputs": []
+}
+JSON
+uv run --locked agent-eval validate-tasks --tasks tasks
+uv run --locked agent-eval generate --tasks tasks --models qwen --artifacts runs
+```
+
+The runner writes `runs/sample-chart__qwen/result.json` and saves `figure.png` there if the agent produces a figure. To judge generated runs, pass `--artifacts runs --artifact-root "$PWD"` to `agent-judge`. The first call to each generation endpoint starts its GPU container and can take several minutes.
+
+## Stop the deployments
+
+Use `uv run --locked modal app list` to see which apps you deployed. Stop the ones you used.
+
+```bash
+uv run --locked modal app stop agent-eval-validator-model
+uv run --locked modal app stop agent-eval-agent-runner
+uv run --locked modal app stop agent-eval-generation-gateway
+uv run --locked modal app stop agent-eval-generation-models
+```
+
+The endpoints scale to zero after five idle minutes. Stopping their apps removes the endpoints until you redeploy. [Modal app CLI](https://modal.com/docs/cli/latest/app)
