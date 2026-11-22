@@ -2,8 +2,8 @@
 set -euo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-student_dir="$(dirname -- "$script_dir")"
-cd "$student_dir"
+project_dir="$(dirname -- "$script_dir")"
+cd "$project_dir"
 
 uv run python -m infrastructure.configure_generation
 uv run modal deploy infrastructure/generation_gateway.py

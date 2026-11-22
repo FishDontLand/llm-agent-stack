@@ -1,6 +1,4 @@
-# Dataset provenance (do not regenerate or edit)
-
-Graders evaluate against these exact splits.
+# Dataset splits
 
 | file | contents |
 |---|---|
@@ -9,7 +7,7 @@ Graders evaluate against these exact splits.
 | `textcraft_train.jsonl` | 852 TextCraft-Synth tasks, **medium** difficulty (train split) |
 | `textcraft_val.jsonl` | 213 held-out medium tasks |
 | `textcraft_val_hard.jsonl` | 136 held-out **hard** tasks (generalization probe) |
-| `textcraft_recipes.json` | the full synthetic recipe book (1,452 items) all TextCraft tasks were generated against |
+| [`textcraft_recipes.json`](../agent_training/envs/textcraft/textcraft_recipes.json) | the full synthetic recipe book (1,452 items) all TextCraft tasks were generated against |
 
 Notes:
 - Number Search `max_steps` is `ceil(log2(high - low + 2))`, the exact

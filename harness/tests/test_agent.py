@@ -16,7 +16,7 @@ import pytest
 
 from openai.types.chat import ChatCompletion
 
-from assignment.agent import CodeAgent, StepLimitError
+from agent_harness.agent import CodeAgent, StepLimitError
 
 TASK = "print hello, world to the terminal"
 

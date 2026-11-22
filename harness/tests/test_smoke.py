@@ -1,7 +1,7 @@
-import assignment
-import assignment.agent
+import agent_harness
+import agent_harness.agent
 
 
 def test_package_importable():
-    assert assignment is not None
-    assert assignment.agent is not None
+    assert agent_harness is not None
+    assert agent_harness.agent is not None

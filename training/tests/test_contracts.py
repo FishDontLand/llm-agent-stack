@@ -11,11 +11,11 @@ import asyncio
 
 import pytest
 
-from scottyrl.config import ModelConfig, TrainConfig
-from scottyrl.tinker_adapter import TinkerSession
-from scottyrl.train.async_grpo import AsyncGRPOTrainer, GroupResult
-from scottyrl.train.sync import SyncTrainer
-from scottyrl.types import LLMCall, Task, TokenSequence, Trajectory
+from agent_training.config import ModelConfig, TrainConfig
+from agent_training.tinker_adapter import TinkerSession
+from agent_training.train.async_grpo import AsyncGRPOTrainer, GroupResult
+from agent_training.train.sync import SyncTrainer
+from agent_training.types import LLMCall, Task, TokenSequence, Trajectory
 
 # ------------------------------------------------------- submit_update --
 

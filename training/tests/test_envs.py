@@ -7,12 +7,12 @@ import asyncio
 import json
 import re
 
-from scottyrl.agents.xml_tool_call import XMLToolCallAgent, parse_tool_call
-from scottyrl.envs.number_search import NumberSearchEnv
-from scottyrl.envs.textcraft import RecipeBook, TextCraftEnv
-from scottyrl.policy import MockPolicy
-from scottyrl.rollout import run_episode
-from scottyrl.types import Task, ToolCall
+from agent_training.agents.xml_tool_call import XMLToolCallAgent, parse_tool_call
+from agent_training.envs.number_search import NumberSearchEnv
+from agent_training.envs.textcraft import RecipeBook, TextCraftEnv
+from agent_training.policy import MockPolicy
+from agent_training.rollout import run_episode
+from agent_training.types import Task, ToolCall
 
 
 def run(coro):
@@ -70,7 +70,7 @@ def test_number_search_budget_and_invalid():
 #
 # MockPolicy renders messages as "<role>\ncontent\n" and tokenizes text as
 # its UTF-8 bytes, so these checks need no tokenizer. The real chat template
-# (scottyrl/chat_templates/qwen3_5.jinja) has the same two properties the
+# (agent_training/chat_templates/qwen3_5.jinja) has the same two properties the
 # tests below rely on: it re-renders earlier assistant turns verbatim, and it
 # adds the turn marker itself, so the stop token is not stored in history.
 

@@ -1886,7 +1886,7 @@ wheels = [
 ]
 
 [[package]]
-name = "scottyrl"
+name = "agent-training"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

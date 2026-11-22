@@ -1,6 +1,6 @@
-"""SkyRL Tinker server for the TextCraft-Synth run (given).
+"""SkyRL Tinker server for the TextCraft-Synth run.
 
-Use it for:  Part 5 (`p5`), including the evaluation and export steps.
+Use this endpoint for TextCraft training, evaluation, and export.
 Hardware:    4x H100, split: 1 for training, 3 for sampling.
 
 See README.md for the trainer and inference settings.
@@ -9,7 +9,7 @@ Run from this directory:
 
     uv run modal run serve_textcraft.py::smoke_install             # optional, builds the image
     uv run modal deploy serve_textcraft.py
-    uv run modal app stop scottyrl-textcraft                       # when you are done
+    uv run modal app stop agent-training-textcraft                       # when you are done
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from skyrl_server import (
     split,
 )
 
-APP_NAME = "scottyrl-textcraft"
+APP_NAME = "agent-training-textcraft"
 
 backend_config = {
     **BASE_BACKEND_CONFIG,

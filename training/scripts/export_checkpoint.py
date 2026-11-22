@@ -1,33 +1,8 @@
-"""Export a run's final adapter to a public Hugging Face model repo (given).
+"""Export a final PEFT LoRA adapter from a Tinker checkpoint to Hugging Face.
 
-Graders cannot sample from your `tinker://` checkpoints (they live on your
-own server), so the Part 5 adapter is submitted as a public Hub repo. Run this once after the Part 5 run has finished:
-
-  python scripts/export_checkpoint.py                       # p5_textcraft_grpo
-  python scripts/export_checkpoint.py --run p5_textcraft_grpo --exist-ok
-
-It reads `final_sampler_path` from runs/<run>.checkpoints.json, downloads
-the checkpoint archive from the Tinker service (`TINKER_BASE_URL` selects a
-self-hosted server), extracts the PEFT LoRA adapter, adds a model card,
-uploads everything to `<hf-username>/scottyrl-a3-<run>` (public; graders
-must be able to load it) and records the repo id in the checkpoints file as
-`hf_model_id`, which scripts/package_submission.py puts in the manifest.
-The repo must stay public until grades are released.
-
-You need a Hugging Face account and a login (`hf auth login`, once). The
-name template is fixed; `--repo-id` overrides it if you must (the manifest
-carries whatever was used). Re-running against an existing repo needs
-`--exist-ok`. `--model-path tinker://...` exports another checkpoint of the
-run; `--from-dir <adapter_dir>` uploads an adapter directory that is
-already on disk (course staff pulling checkpoints off a server volume, or
-`tinker checkpoint download` output) and skips the download.
-
-The export downloads the checkpoint through your server, so the deployment
-that trained the run must be up. If you have stopped it, redeploy it with
-the same command: checkpoints persist on its volume. Graders serve
-the repo with vLLM and evaluate it with scripts/evaluate_checkpoint.py
---server; the model card shows the exact commands, so you can check your
-export the same way.
+The default checkpoint comes from the run's checkpoint manifest. Use
+--model-path to choose another checkpoint or --from-dir to use files on disk.
+The CLI publishes the adapter to the Hub and records its model ID in the manifest.
 """
 
 from __future__ import annotations
@@ -45,11 +20,11 @@ import yaml
 # The checkout this script lives in.
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-REQUIRED_RUNS_FILE = "configs/required_runs.yaml"
+REQUIRED_RUNS_FILE = "configs/runs.yaml"
 DEFAULT_RUN = "p5_textcraft_grpo"
 DEFAULT_BASE_MODEL = "Qwen/Qwen3.5-4B"
-REPO_ID_TEMPLATE = "{hf_user}/scottyrl-a3-{run_name}"
-MODEL_CARD_TAGS = ["tinker", "peft", "lora", "scottyrl", "11-768"]
+REPO_ID_TEMPLATE = "{hf_user}/agent-training-{run_name}"
+MODEL_CARD_TAGS = ["tinker", "peft", "lora", "agent-training"]
 ADAPTER_CONFIG = "adapter_config.json"
 ADAPTER_WEIGHTS = ("adapter_model.safetensors", "adapter_model.bin")
 COMPLETE_MARKER = "checkpoint_complete"
@@ -64,7 +39,7 @@ class ExportError(Exception):
 
 def make_rest_client():
     """A Tinker REST client (`TINKER_BASE_URL` selects a self-hosted server)."""
-    from scottyrl.tinker_adapter import make_service_client
+    from agent_training.tinker_adapter import make_service_client
 
     return make_service_client().create_rest_client()
 
@@ -233,10 +208,9 @@ tags:
 {tags}
 ---
 
-# scottyrl A3 adapter: {run_name}
+# Agent Training adapter: {run_name}
 
-LoRA adapter ({rank}) on `{base_model}`, trained with the scottyrl
-framework for 11-768 (AI Agents, CMU), Assignment 3.
+LoRA adapter ({rank}) on `{base_model}`, trained with the Agent Training package.
 
 - run_name: `{run_name}`
 - exported from: `{exported_from}`
@@ -245,17 +219,15 @@ framework for 11-768 (AI Agents, CMU), Assignment 3.
 
 ## How it is evaluated
 
-Graders serve the adapter with vLLM and run the course evaluation script
-against the server, on the medium and hard TextCraft-Synth validation
-splits:
+Serve the adapter with vLLM and evaluate the TextCraft validation splits.
 
 ```bash
 vllm serve {base_model} --enable-lora --max-lora-rank {lora_rank or 32} \\
-    --lora-modules a3={repo_id}
+    --lora-modules adapter={repo_id}
 python scripts/evaluate_checkpoint.py --config {config_path} \\
-    --server http://localhost:8000/v1 --model a3 --k 4
+    --server http://localhost:8000/v1 --model adapter --k 4
 python scripts/evaluate_checkpoint.py --config {config_path} \\
-    --server http://localhost:8000/v1 --model a3 --k 4 \\
+    --server http://localhost:8000/v1 --model adapter --k 4 \\
     --tasks data/textcraft_val_hard.jsonl
 ```
 """
@@ -369,7 +341,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--from-dir", default=None, metavar="ADAPTER_DIR",
                         help="upload this adapter directory instead of downloading")
     parser.add_argument("--repo-id", default=None,
-                        help="Hub repo id (default: <hf-username>/scottyrl-a3-<run>)")
+                        help="Hub repo id (default: <hf-username>/agent-training-<run>)")
     parser.add_argument("--exist-ok", action="store_true", help="update an existing repo")
     parser.add_argument("--root", default=str(REPO_ROOT),
                         help="repo root holding runs/ and configs/ (default: this checkout)")
@@ -397,7 +369,7 @@ def main(argv: list[str] | None = None) -> int:
             if not manifest:
                 raise ExportError(
                     f"{manifest_path} does not exist: run the training first "
-                    f"(see ASSIGNMENT.md for the command; the config is {config_path})"
+                    f"(config: {config_path})"
                 )
             tinker_path = manifest.get("final_sampler_path")
             if not tinker_path:
@@ -441,7 +413,7 @@ def main(argv: list[str] | None = None) -> int:
             url = upload(
                 api, adapter_dir, repo_id,
                 exist_ok=args.exist_ok,
-                message=f"scottyrl A3 {args.run} from {exported_from}",
+                message=f"Agent Training {args.run} from {exported_from}",
             )
 
         update_checkpoints(manifest_path, repo_id, exported_from)

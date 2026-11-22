@@ -44,9 +44,9 @@ def volumes() -> dict[str, modal.Volume]:
     """Caches shared by every deployment, so a model is downloaded once."""
     return {
         "/root/.cache/huggingface": modal.Volume.from_name(
-            "hw2-huggingface-cache", create_if_missing=True),
+            "agent-eval-huggingface-cache", create_if_missing=True),
         "/root/.cache/vllm": modal.Volume.from_name(
-            "hw2-vllm-cache", create_if_missing=True),
+            "agent-eval-vllm-cache", create_if_missing=True),
     }
 
 

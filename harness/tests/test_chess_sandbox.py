@@ -3,7 +3,7 @@
 import modal
 import pytest
 
-from assignment.chess_sandbox import ChessSandbox, IllegalMove
+from agent_harness.chess_sandbox import ChessSandbox, IllegalMove
 
 
 pytestmark = pytest.mark.modal
@@ -17,7 +17,7 @@ def test_chess_app_is_playable_through_modal_tunnel():
     assert not running_sandboxes(app), "Another swe-rex sandbox is already running."
 
     # This public test verifies the tunnel and API infrastructure without
-    # depending on the intentionally broken engine search. The private grader
+    # depending on the intentionally broken engine search. The regression suite
     # applies a candidate patch before exercising successful moves.
     with ChessSandbox() as sandbox:
         assert len(running_sandboxes(app)) == 1

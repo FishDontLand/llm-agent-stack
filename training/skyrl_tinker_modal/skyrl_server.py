@@ -1,4 +1,4 @@
-"""Shared pieces of the SkyRL Tinker servers on Modal (given).
+"""Shared pieces of the SkyRL Tinker servers on Modal.
 
 The three launch scripts in this directory (`serve_number_search_sync.py`,
 `serve_number_search_async.py`, `serve_textcraft.py`) set their GPU placement
@@ -41,7 +41,7 @@ BACKEND = "megatron"
 REMOTE_REPO = "/opt/SkyRL"
 # The pinned fork includes adapter-only sampler checkpoints. A named sampler
 # snapshot is what `TinkerSession.new_sampling_client` saves after every
-# update, and what scripts/export_checkpoint.py downloads for Part 5. Stock
+# update, and what scripts/export_checkpoint.py downloads for adapter export. Stock
 # SkyRL answers it by exporting the full merged model: several GB per step on
 # Megatron, and not an adapter. The fork archives the LoRA adapter it
 # has just handed to vLLM, in the layout the export script expects.
@@ -188,7 +188,7 @@ image = (
 # Model downloads are shared by all deployments. Service state (checkpoints and
 # SkyRL's model registry) is kept per deployment, so two servers running at the
 # same time never write to the same database.
-hf_cache = modal.Volume.from_name("scottyrl-hf-cache", create_if_missing=True)
+hf_cache = modal.Volume.from_name("agent_training-hf-cache", create_if_missing=True)
 
 
 def server_options(app_name: str, gpu: str) -> dict:

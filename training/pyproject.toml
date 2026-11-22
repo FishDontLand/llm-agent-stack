@@ -1,7 +1,7 @@
 [project]
-name = "scottyrl"
+name = "agent-training"
 version = "0.1.0"
-description = "Minimal agentic RL training framework for 11-768 Assignment 3"
+description = "Synchronous and asynchronous reinforcement learning for tool-using agents"
 requires-python = ">=3.11"
 dependencies = [
     "pyyaml",
@@ -14,7 +14,7 @@ dependencies = [
     # transformers needs jinja2 to render chat templates.
     "jinja2",
     "wandb",
-    # scripts/export_checkpoint.py: uploads the Part 5 adapter to the Hub.
+    # scripts/export_checkpoint.py: uploads a LoRA adapter to the Hub.
     "huggingface_hub",
     # scripts/export_checkpoint.py downloads the checkpoint archive and
     # CompletionsServerPolicy talks to a vLLM/SGLang server.
@@ -30,10 +30,11 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["scottyrl*"]
+include = ["agent_training*"]
 
 [tool.setuptools.package-data]
-scottyrl = ["chat_templates/*.jinja"]
+agent_training = ["chat_templates/*.jinja"]
+"agent_training.envs.textcraft" = ["textcraft_recipes.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

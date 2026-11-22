@@ -10,9 +10,9 @@ from typing import Any
 
 import modal
 
-APP_NAME = "hw2-generation-gateway"
+APP_NAME = "agent-eval-generation-gateway"
 FUNCTION_NAME = "complete"
-SECRET_NAME = "hw2-generation-endpoints"
+SECRET_NAME = "agent-eval-generation-endpoints"
 
 app = modal.App(APP_NAME)
 image = modal.Image.debian_slim(python_version="3.12").uv_pip_install(

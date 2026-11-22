@@ -1,6 +1,6 @@
-"""Fast checks for setup helpers that must work before student TODOs."""
+"""Offline checks for sandbox setup helpers."""
 
-from assignment.env import _tls_port_configuration
+from agent_harness.env import _tls_port_configuration
 
 
 def test_runtime_port_uses_tls_and_is_not_duplicated():

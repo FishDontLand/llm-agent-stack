@@ -1,6 +1,6 @@
-"""SkyRL Tinker server for the SYNCHRONOUS Number Search runs (given).
+"""SkyRL Tinker server for the SYNCHRONOUS Number Search runs.
 
-Use it for:  Part 2 (`p2a`, `p2b`) and Part 4.1 (`p41`).
+Use this endpoint for synchronous Number Search training.
 Hardware:    2x H100, colocated.
 
 See README.md for the trainer and inference settings.
@@ -9,7 +9,7 @@ Run from this directory:
 
     uv run modal run serve_number_search_sync.py::smoke_install    # optional, builds the image
     uv run modal deploy serve_number_search_sync.py
-    uv run modal app stop scottyrl-ns-sync                         # when you are done
+    uv run modal app stop agent-training-ns-sync                         # when you are done
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from skyrl_server import (
     server_options,
 )
 
-APP_NAME = os.environ.get("SKYRL_APP_NAME", "scottyrl-ns-sync")
+APP_NAME = os.environ.get("SKYRL_APP_NAME", "agent-training-ns-sync")
 
 backend_config = {
     **BASE_BACKEND_CONFIG,

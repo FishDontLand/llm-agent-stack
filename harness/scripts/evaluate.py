@@ -1,14 +1,8 @@
-"""Grade a patch against a task's testbed.
+"""Evaluate a patch against a task's testbed.
 
-    # student-facing check of the generated patch
     uv run python scripts/evaluate.py --task tasks/chess-terminal-move \
         --evaluation tasks/chess-terminal-move/public_tests \
         --patch artifacts/fix.patch
-
-    # instructor sanity check: the reference fix must resolve the private task
-    uv run python scripts/evaluate.py --task tasks/chess-terminal-move \
-        --evaluation /path/to/private/chess-terminal-move \
-        --patch /path/to/private/chess-terminal-move/gold_patch.diff
 """
 
 import argparse
@@ -16,7 +10,7 @@ import logging
 import sys
 from pathlib import Path
 
-from assignment.eval import EvaluationSpec, Task, evaluate
+from agent_harness.eval import EvaluationSpec, Task, evaluate
 
 
 def main() -> int:

@@ -1,6 +1,6 @@
-"""SkyRL Tinker server for the ASYNCHRONOUS Number Search runs (given).
+"""SkyRL Tinker server for the ASYNCHRONOUS Number Search runs.
 
-Use it for:  Part 3 (`p3`) and Part 4.3 (`p43_*_iw`, `p43_*_noiw`).
+Use this endpoint for asynchronous Number Search training.
 Hardware:    2x H100, split: 1 for training, 1 for sampling.
 
 See README.md for the trainer and inference settings.
@@ -9,7 +9,7 @@ Run from this directory:
 
     uv run modal run serve_number_search_async.py::smoke_install   # optional, builds the image
     uv run modal deploy serve_number_search_async.py
-    uv run modal app stop scottyrl-ns-async                        # when you are done
+    uv run modal app stop agent-training-ns-async                        # when you are done
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from skyrl_server import (
     split,
 )
 
-APP_NAME = os.environ.get("SKYRL_APP_NAME", "scottyrl-ns-async")
+APP_NAME = os.environ.get("SKYRL_APP_NAME", "agent-training-ns-async")
 
 backend_config = {
     **BASE_BACKEND_CONFIG,

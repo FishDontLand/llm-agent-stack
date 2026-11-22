@@ -10,19 +10,19 @@ corresponding file.
 import asyncio
 import inspect
 
-from scottyrl.advantages import compute_group_advantages
-from scottyrl.datagen import (
+from agent_training.advantages import compute_group_advantages
+from agent_training.datagen import (
     extension_suffix,
     stitch_trajectory,
     trajectory_to_training_sequences,
 )
-from scottyrl.envs.number_search import NumberSearchEnv
-from scottyrl.policy import MockPolicy
-from scottyrl.tinker_adapter import TinkerSession
-from scottyrl.train.async_grpo import AsyncGRPOTrainer
-from scottyrl.train.common import collect_group, groups_to_batch
-from scottyrl.train.sync import SyncTrainer
-from scottyrl.types import LLMCall, Task, TokenSequence, Trajectory
+from agent_training.envs.number_search import NumberSearchEnv
+from agent_training.policy import MockPolicy
+from agent_training.tinker_adapter import TinkerSession
+from agent_training.train.async_grpo import AsyncGRPOTrainer
+from agent_training.train.common import collect_group, groups_to_batch
+from agent_training.train.sync import SyncTrainer
+from agent_training.types import LLMCall, Task, TokenSequence, Trajectory
 
 REQUIRED_BATCH_STATS = {
     "num_groups",

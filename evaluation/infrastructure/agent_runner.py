@@ -12,9 +12,9 @@ from typing import Any
 import modal
 
 MINI_SWE_AGENT_VERSION = "2.4.5"
-APP_NAME = "hw2-agent-runner"
+APP_NAME = "agent-eval-agent-runner"
 FUNCTION_NAME = "run_task"
-GATEWAY_APP = "hw2-generation-gateway"
+GATEWAY_APP = "agent-eval-generation-gateway"
 GATEWAY_FUNCTION = "complete"
 COMMAND_TIMEOUT_SECONDS = 120
 STEP_LIMIT = 20

@@ -7,7 +7,7 @@ Run with `pytest -m modal`.
 import modal
 import pytest
 
-from assignment.env import Environment
+from agent_harness.env import Environment
 
 pytestmark = pytest.mark.modal
 

@@ -1,0 +1,8 @@
+# Historical run IDs mapped to the configs used by checkpoint export.
+p2a_number_search_reinforce: configs/number_search_reinforce.yaml
+p2b_number_search_grpo: configs/number_search_grpo.yaml
+p3_number_search_async: configs/number_search_async.yaml
+p41_number_search_grpo_g2: configs/number_search_grpo_g2.yaml
+p43_number_search_async_stale4_iw: configs/number_search_async_weighted.yaml
+p43_number_search_async_stale4_noiw: configs/number_search_async_unweighted.yaml
+p5_textcraft_grpo: configs/textcraft_grpo.yaml

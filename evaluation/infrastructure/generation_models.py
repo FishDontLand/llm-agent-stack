@@ -1,6 +1,6 @@
 """OpenAI-compatible Modal endpoints for the three fixed generation models.
 
-Deploy all three endpoints from the student release directory with:
+Deploy all three endpoints from the evaluation directory with:
 
     uv run modal deploy infrastructure/generation_models.py
 
@@ -16,7 +16,7 @@ QWEN_MODEL = "Qwen/Qwen2.5-Coder-3B-Instruct"
 MINISTRAL_MODEL = "mistralai/Ministral-3-14B-Instruct-2512"
 GLM_MODEL = "zai-org/GLM-4.7-Flash"
 
-app = modal.App("hw2-generation-models")
+app = modal.App("agent-eval-generation-models")
 
 # GLM-4.7 support currently requires vLLM and Transformers revisions newer than
 # the stable shared image, so pin the exact pair exercised by the live smoke

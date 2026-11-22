@@ -16,8 +16,8 @@ import logging
 import sys
 from pathlib import Path
 
-from assignment.eval.harness import evaluate
-from assignment.eval.instances import available, load as load_instance
+from agent_harness.eval.harness import evaluate
+from agent_harness.eval.instances import available, load as load_instance
 
 
 def main() -> int:

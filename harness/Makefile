@@ -3,15 +3,14 @@
 	run-obs-experiment-no-legal-moves run-obs-experiment-legal-moves \
 	run-obs-deepseek-no-legal run-obs-deepseek-legal \
 	run-obs-gpt-oss-no-legal run-obs-gpt-oss-legal \
-	run-chess-modal instructor-eval-base instructor-eval-gold instructor-eval-patch
+	run-chess-modal
 
 TASK ?= tasks/chess-terminal-move
 CODE_SKILLS ?= tasks/code-skills
 PATCH ?= artifacts/fix.patch
 PART1_TRAJECTORY ?= artifacts/part1-trajectory.json
-PRIVATE_EVAL ?= .private/chess-terminal-move
 PUBLIC_EVAL ?= $(TASK)/public_tests
-# One of the vendored instances under tasks/swebench/.
+# A SWE-bench instance shipped with the harness.
 INSTANCE ?= django__django-15368
 SWEBENCH_PATCH ?= artifacts/$(INSTANCE).patch
 SWEBENCH_TRAJECTORY ?= artifacts/$(INSTANCE)-trajectory.json
@@ -31,17 +30,16 @@ OBS_LEGAL_RESULT ?= artifacts/part3-legal-moves-$(MODEL_TAG)-result.json
 
 setup:
 	uv sync
-	git submodule update --init
+	git submodule update --init -- chess_app
 	$(MAKE) verify-sources
 
 doctor:
-	uv run assignment-doctor
+	uv run agent-harness-doctor
 
 verify-sources:
-	uv run python -c "from assignment.task import Task; from assignment.utils.image import verify_source; verify_source(Task.load('tasks/chess-terminal-move'))"
+	uv run python -c "from agent_harness.task import Task; from agent_harness.utils.image import verify_source; verify_source(Task.load('tasks/chess-terminal-move'))"
 
-# Fast and free. These tests fail in the starter until the corresponding TODOs
-# are implemented.
+# Offline harness tests.
 test:
 	uv run pytest
 
@@ -52,8 +50,7 @@ test-modal:
 test-chess-modal:
 	uv run pytest -m modal tests/test_chess_sandbox.py
 
-# Apply the student's generated patch to a fresh testbed and run the public
-# Part 1 regression test plus the existing chess-app suite.
+# Apply the generated patch and run the testbed regression suite.
 check-part1:
 	@test -f "$(PATCH)" || (echo "Patch not found: $(PATCH). Run make run-code-agent first."; exit 1)
 	uv run python scripts/evaluate.py --task $(TASK) --evaluation $(PUBLIC_EVAL) \
@@ -66,41 +63,41 @@ check-swebench:
 	uv run python scripts/evaluate_swebench.py $(INSTANCE) --patch $(SWEBENCH_PATCH) -v
 
 run-code-agent:
-	uv run assignment-code-agent --task $(TASK) --model $(MODEL) --step-limit $(STEPS) \
+	uv run agent-harness-code --task $(TASK) --model $(MODEL) --step-limit $(STEPS) \
 		--skills-path $(CODE_SKILLS) --trajectory $(PART1_TRAJECTORY) \
 		--patch-output $(PATCH)
 
 # Run the code agent on a vendored SWE-bench instance, in its published image.
 run-swebench-agent:
-	uv run assignment-swebench-agent $(INSTANCE) --model $(MODEL) \
+	uv run agent-harness-swebench $(INSTANCE) --model $(MODEL) \
 		--patch-output $(SWEBENCH_PATCH) \
 		--trajectory $(SWEBENCH_TRAJECTORY) \
 		--skills-path $(CODE_SKILLS) \
 		--step-limit $(STEPS) $(if $(filter-out 0,$(COMPACT_THRESHOLD)),--compact-threshold-tokens $(COMPACT_THRESHOLD),)
 
 run-chess-agent:
-	uv run assignment-play-chess --model $(MODEL) --task $(TASK) --patch $(PATCH) \
+	uv run agent-harness-chess --model $(MODEL) --task $(TASK) --patch $(PATCH) \
 		--step-limit $(STEPS) --sandbox-timeout $(CHESS_TIMEOUT) \
 		--trajectory $(TRAJECTORY) --result $(RESULT)
 	
 run-chess-agent-custom:
-	uv run assignment-play-chess --model $(MODEL) --task $(TASK) --patch $(PATCH) \
+	uv run agent-harness-chess --model $(MODEL) --task $(TASK) --patch $(PATCH) \
 		--step-limit $(STEPS) --sandbox-timeout $(CHESS_TIMEOUT) \
 		--trajectory $(TRAJECTORY) --result $(RESULT) --programmatic-tools
 
 run-chess-agent-enhanced:
-	uv run assignment-play-chess --model $(MODEL) --task $(TASK) --patch $(PATCH) \
+	uv run agent-harness-chess --model $(MODEL) --task $(TASK) --patch $(PATCH) \
 		--step-limit $(STEPS) --sandbox-timeout $(CHESS_TIMEOUT) \
 		--trajectory $(TRAJECTORY) --result $(RESULT) --programmatic-tools \
 		--skills-path tasks/chess-skills --trajectory artifacts/part3-python-skill-trajectory.json
 
 run-obs-experiment-no-legal-moves:
-	uv run assignment-play-chess --model $(MODEL) --task $(TASK) --patch $(PATCH) \
+	uv run agent-harness-chess --model $(MODEL) --task $(TASK) --patch $(PATCH) \
 		--omit-legal-moves --step-limit $(STEPS) --sandbox-timeout $(CHESS_TIMEOUT) \
 		--trajectory $(OBS_NO_LEGAL_TRAJECTORY) --result $(OBS_NO_LEGAL_RESULT)
 
 run-obs-experiment-legal-moves:
-	uv run assignment-play-chess --model $(MODEL) --task $(TASK) --patch $(PATCH) \
+	uv run agent-harness-chess --model $(MODEL) --task $(TASK) --patch $(PATCH) \
 		--step-limit $(STEPS) --sandbox-timeout $(CHESS_TIMEOUT) \
 		--trajectory $(OBS_LEGAL_TRAJECTORY) --result $(OBS_LEGAL_RESULT)
 
@@ -117,4 +114,4 @@ run-obs-gpt-oss-legal:
 	$(MAKE) run-obs-experiment-legal-moves MODEL="$(GPT_OSS_MODEL)" MODEL_TAG=gpt-oss
 
 run-chess-modal:
-	uv run assignment-chess-modal --task $(TASK) --sandbox-timeout $(CHESS_TIMEOUT) $(if $(wildcard $(PATCH)),--patch $(PATCH),)
+	uv run agent-harness-chess-modal --task $(TASK) --sandbox-timeout $(CHESS_TIMEOUT) $(if $(wildcard $(PATCH)),--patch $(PATCH),)

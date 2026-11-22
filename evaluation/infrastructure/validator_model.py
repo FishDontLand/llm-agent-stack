@@ -1,12 +1,6 @@
-"""OpenAI-compatible Modal endpoint for the fixed validator model.
+"""Deploy the multimodal validator endpoint on Modal.
 
-Students deploy this file in their own Modal workspace for development. Staff
-deploy the same file in the grading workspace so both environments use the
-same model and serving configuration.
-
-Deploy from the student release directory with:
-
-    uv run modal deploy infrastructure/validator_model.py
+Run `uv run modal deploy infrastructure/validator_model.py` from the evaluation directory.
 """
 
 from __future__ import annotations
@@ -16,7 +10,7 @@ import serving
 
 MODEL = "Qwen/Qwen3-VL-30B-A3B-Instruct-FP8"
 
-app = modal.App("hw2-validator-model")
+app = modal.App("agent-eval-validator-model")
 
 
 @app.cls(

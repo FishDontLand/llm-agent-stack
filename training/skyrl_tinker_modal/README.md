@@ -1,12 +1,12 @@
 # Self-Hosting the Training Backend with SkyRL and Modal
 
-`scottyrl` trains against any Tinker-compatible service. In this assignment that service is [SkyRL's Tinker server](https://docs.skyrl.ai/docs/tinker/overview), which you deploy yourself on [Modal](https://modal.com/) GPUs. This directory contains one launch script for each kind of run in the assignment. Each script requests the GPUs its runs need and splits them between training and sampling to suit those runs.
+The training package supports Tinker-compatible endpoints, including [SkyRL's Tinker server](https://docs.skyrl.ai/docs/tinker/overview), which you deploy yourself on [Modal](https://modal.com/) GPUs. This directory contains one launch script for each kind of run in the assignment. Each script requests the GPUs its runs need and splits them between training and sampling to suit those runs.
 
 | Launch script | Use it for | GPUs | Layout |
 |---|---|---|---|
-| `serve_number_search_sync.py` | Part 2 (`p2a`, `p2b`) and Part 4.1 (`p41`) | 2x H100 | colocated: both GPUs train *and* sample |
-| `serve_number_search_async.py` | Part 3 (`p3`) and Part 4.3 (`p43_*`) | 2x H100 | split: 1 trains, 1 samples |
-| `serve_textcraft.py` | Part 5 (`p5`), its evaluation and its export | 4x H100 | split: 1 trains, 3 sample |
+| `serve_number_search_sync.py` | Synchronous Number Search | 2x H100 | colocated: both GPUs train *and* sample |
+| `serve_number_search_async.py` | Asynchronous Number Search | 2x H100 | split: 1 trains, 1 samples |
+| `serve_textcraft.py` | TextCraft training and evaluation | 4x H100 | split: 1 trains, 3 sample |
 
 The layouts differ because the two trainers use GPUs differently. Synchronous training alternates between sampling and updating, so colocating the two keeps both GPUs busy in both phases (SkyRL puts the sampling engines to sleep during an update and wakes them afterwards). Asynchronous training samples *while* it updates, which a colocated server cannot do, so it needs a GPU for each role. Part 5 is asynchronous too, and TextCraft-Synth episodes are long and spend most of their time sampling, so three of its four GPUs go to the sampler.
 
@@ -44,7 +44,7 @@ uv run --extra modal modal deploy serve_textcraft.py
 ```
 
 CPU-only fault-injection tests can run against a checkout of the pinned SkyRL
-commit with the patch applied. From the assignment repository root:
+commit with the patch applied. From the training directory:
 
 ```bash
 git -C /path/to/SkyRL apply "$PWD/skyrl_tinker_modal/patches/result_persistence.patch"
@@ -82,7 +82,7 @@ uv run modal run serve_number_search_sync.py::smoke_install
 
 ## Running a Part
 
-**1. Deploy the server for the part you are working on.** For example, for Part 2:
+**1. Deploy the server for your run.** For example, for synchronous Number Search:
 
 ```bash
 uv run modal deploy serve_number_search_sync.py
@@ -90,11 +90,11 @@ uv run modal deploy serve_number_search_sync.py
 
 Modal prints the URL of the deployment. Apart from the one-time image build, deploying costs nothing by itself: the server scales to zero, and GPUs are only allocated once a training run connects.
 
-**2. Point `scottyrl` at it and train.** From the repo root:
+**2. Point `agent_training` at it and train.** From the repo root:
 
 ```bash
-export TINKER_BASE_URL=https://<your-workspace>--scottyrl-ns-sync-tinker-server.modal.run
-uv run python scripts/train_sync.py --config configs/p2b_number_search_grpo.yaml
+export TINKER_BASE_URL=https://<your-workspace>--agent-training-ns-sync-tinker-server.modal.run
+uv run python scripts/train_sync.py --config configs/number_search_grpo.yaml
 ```
 
 Copy the exact URL that `modal deploy` printed. It normally has the form above.
@@ -104,20 +104,20 @@ The first request starts the container, loads the model, and brings up the sampl
 **3. Stop the server when you are done.** An idle server shuts down by itself after five minutes, but you pay for those minutes. To stop it immediately:
 
 ```bash
-uv run modal app stop scottyrl-ns-sync
+uv run modal app stop agent-training-ns-sync
 ```
 
 Stopping removes the deployment, so run `uv run modal deploy ...` again before your next run. This takes seconds because the image is cached, and the URL stays the same. Your checkpoints live on a volume and are not affected.
 
-The app names are `scottyrl-ns-sync`, `scottyrl-ns-async`, and `scottyrl-textcraft`. You can see what is running, and what it has cost so far, in the Modal dashboard.
+The app names are `agent-training-ns-sync`, `agent-training-ns-async`, and `agent-training-textcraft`. You can see what is running, and what it has cost so far, in the Modal dashboard.
 
 ## Running Parts in Parallel
 
 The three launch scripts are separate Modal apps, each with its own URL, GPUs, and checkpoint volume, so you can run one part on each of them at the same time without any extra setup. You only need a second app name when you want two runs on the *same* launcher, for example `p2a` and `p41`, which both use the synchronous server. Set `SKYRL_APP_NAME` when deploying either Number Search launcher:
 
 ```bash
-SKYRL_APP_NAME=scottyrl-p2a uv run modal deploy serve_number_search_sync.py
-SKYRL_APP_NAME=scottyrl-p41 uv run modal deploy serve_number_search_sync.py
+SKYRL_APP_NAME=agent-training-reinforce uv run modal deploy serve_number_search_sync.py
+SKYRL_APP_NAME=agent-training-grpo-g2 uv run modal deploy serve_number_search_sync.py
 ```
 
 Each app has its own endpoint and checkpoint/database volume. In separate terminals, set `TINKER_BASE_URL` to the corresponding deployment URL and launch one training run per app. Without `SKYRL_APP_NAME`, the default app names are unchanged. Use the same app name when resuming a run, and stop each app with `uv run modal app stop <app name>` when you are done.
@@ -146,7 +146,7 @@ These are the SkyRL backend configuration flags:
 | `trainer.fused_lm_head_logprob` | compute logprobs in chunks inside the output layer without storing the full-vocabulary logits: `True` for all parts (the unfused backward pass runs out of GPU memory at this micro-batch size) |
 | `trainer.logprobs_chunk_size` | no. of tokens per logprob chunk: `1024`, explicitly set for the Number Search servers and the SkyRL default for TextCraft. |
 | `generator.inference_engine.gpu_memory_utilization` | fraction of each inference GPU's memory that vLLM may use for weights, KV cache and activations: `0.7` for colocated setups (leave room for the trainer), `0.85` otherwise. |
-| `generator.inference_engine.engine_init_kwargs.max_model_len` | context window in vLLM (max allowed prompt tokens + output tokens): `32768` for number search, `65000` for TextCraft. A request over this limit is rejected; the framework then abandons that episode with reward 0 and the run carries on (`scottyrl/rollout.py`). |
+| `generator.inference_engine.engine_init_kwargs.max_model_len` | context window in vLLM (max allowed prompt tokens + output tokens): `32768` for number search, `65000` for TextCraft. A request over this limit is rejected; the framework then abandons that episode with reward 0 and the run carries on (`agent_training/rollout.py`). |
 | `generator.inference_engine.max_num_batched_tokens` | max. allowed tokens in a single inference batch for each vLLM engine: `50000` (50K) for all server configs (independent of the training microbatch budget) |
 | `generator.inference_engine.max_num_seqs` | max. allowed sequences in a single inference batch for each vLLM engine: `256` |
 | `generator.inference_engine.enable_prefix_caching` | enable KV-caching in vLLM for faster inference: `True` |
@@ -174,5 +174,5 @@ If you ever change GPU placement, keep it consistent with Modal's GPU allocation
 At Modal's list price of roughly $4 per H100-hour, each Number Search server costs about $8 per hour and the TextCraft server about $16 per hour while a container is up. Please check [Modal's pricing](https://modal.com/pricing) for current numbers. A few habits keep the bill small:
 
 - Get your code passing the tests locally before you deploy anything. The tests need no GPU.
-- Do a [short probe](../ASSIGNMENT.md#do-a-short-probe-first) before every full run. A crash at step 2 of a probe is much cheaper than a crash at step 40 of the real thing.
+- Do a short probe before every full run. A crash at step 2 of a probe is much cheaper than a crash at step 40 of the real thing.
 - Stop the app when you step away, and never leave the TextCraft server up overnight.

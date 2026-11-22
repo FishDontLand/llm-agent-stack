@@ -1,9 +1,9 @@
-"""Entry point for asynchronous training (Parts 3-5, given).
+"""Entry point for asynchronous group-relative policy training.
 
 Examples:
-  python scripts/train_async.py --config configs/p3_number_search_async.yaml
-  python scripts/train_async.py --config configs/p43_number_search_async_stale4_noiw.yaml
-  python scripts/train_async.py --config configs/p5_textcraft_grpo.yaml \
+  python scripts/train_async.py --config configs/number_search_async.yaml
+  python scripts/train_async.py --config configs/number_search_async_unweighted.yaml
+  python scripts/train_async.py --config configs/textcraft_grpo.yaml \
       --set train.lr=2e-5
 """
 
@@ -13,17 +13,17 @@ import argparse
 import asyncio
 from pathlib import Path
 
-from scottyrl.config import (
+from agent_training.config import (
     check_run_name_available,
     checkpoints_manifest_path,
     load_config,
     resume_marker_path,
 )
-from scottyrl.envs import make_env_factory
-from scottyrl.metrics import MetricsLogger
-from scottyrl.tinker_adapter import TinkerSession, write_checkpoints_manifest
-from scottyrl.train.async_grpo import AsyncGRPOTrainer
-from scottyrl.types import load_tasks
+from agent_training.envs import make_env_factory
+from agent_training.metrics import MetricsLogger
+from agent_training.tinker_adapter import TinkerSession, write_checkpoints_manifest
+from agent_training.train.async_grpo import AsyncGRPOTrainer
+from agent_training.types import load_tasks
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
@@ -82,7 +82,7 @@ async def main() -> None:
         logger,
     )
     try:
-        # Step-0 baseline (given): evaluate the untrained policy before any
+        # Step-0 baseline: evaluate the untrained policy before any
         # update, so the eval curve starts from a real baseline instead of
         # first appearing at cfg.eval_every. These are the same weights
         # train() publishes as version 0, hence policy_version=0. train()
@@ -105,7 +105,7 @@ async def main() -> None:
         logger.log(cfg.num_steps, {f"summary/{key}": value for key, value in stats.items()})
     finally:
         # What this run saved on the Tinker service (sampler snapshots and
-        # resumable state); packaging and grading read final_sampler_path.
+        # resumable state); checkpoint consumers read final_sampler_path.
         write_checkpoints_manifest(session, cfg.run_name, checkpoints_manifest_path(cfg))
         logger.close()
 

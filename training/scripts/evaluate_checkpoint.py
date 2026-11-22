@@ -1,8 +1,5 @@
 """Evaluate a checkpoint, an exported adapter, or the base model on a
-held-out split (given).
-
-Graders run this on the shipped val splits against your exported Part 5
-adapter, served with vLLM.
+held-out split.
 
 The model settings (base model, chat template, thinking mode, max_tokens,
 temperature, stop sequences) come from the same YAML config the run was
@@ -17,23 +14,23 @@ Where the samples come from, one of:
   neither                        the base model, sampled through Tinker
 
 Examples:
-  python scripts/evaluate_checkpoint.py --config configs/p2b_number_search_grpo.yaml \\
+  python scripts/evaluate_checkpoint.py --config configs/number_search_grpo.yaml \\
       --model-path tinker://... --k 4
-  python scripts/evaluate_checkpoint.py --config configs/p5_textcraft_grpo.yaml \\
+  python scripts/evaluate_checkpoint.py --config configs/textcraft_grpo.yaml \\
       --tasks data/textcraft_val_hard.jsonl --k 8 --model-path tinker://...
-  python scripts/evaluate_checkpoint.py --config configs/p5_textcraft_grpo.yaml \\
+  python scripts/evaluate_checkpoint.py --config configs/textcraft_grpo.yaml \\
       --set model.enable_thinking=false      # base model, thinking off
 
   # An adapter exported with scripts/export_checkpoint.py, served by vLLM:
   vllm serve Qwen/Qwen3.5-4B --enable-lora --max-lora-rank 32 \\
-      --lora-modules a3=<hf_model_id>
-  python scripts/evaluate_checkpoint.py --config configs/p5_textcraft_grpo.yaml \\
-      --server http://localhost:8000/v1 --model a3 --k 4
+      --lora-modules adapter=<hf_model_id>
+  python scripts/evaluate_checkpoint.py --config configs/textcraft_grpo.yaml \\
+      --server http://localhost:8000/v1 --model adapter --k 4
   # The same with SGLang (the adapter is named base:adapter in --model):
   python -m sglang.launch_server --model-path Qwen/Qwen3.5-4B --enable-lora \\
-      --lora-paths a3=<hf_model_id> --max-lora-rank 32 --port 8000
-  python scripts/evaluate_checkpoint.py --config configs/p5_textcraft_grpo.yaml \\
-      --server http://localhost:8000/v1 --model Qwen/Qwen3.5-4B:a3 --k 4
+      --lora-paths adapter=<hf_model_id> --max-lora-rank 32 --port 8000
+  python scripts/evaluate_checkpoint.py --config configs/textcraft_grpo.yaml \\
+      --server http://localhost:8000/v1 --model Qwen/Qwen3.5-4B:adapter --k 4
 
 The printed JSON carries the results plus `model_path`, `server` and
 `model`, so a saved output says what was evaluated.
@@ -46,13 +43,13 @@ import asyncio
 import json
 from pathlib import Path
 
-from scottyrl.agents import AGENT_REGISTRY
-from scottyrl.config import load_config
-from scottyrl.envs import make_env_factory
-from scottyrl.evaluate import evaluate_policy
-from scottyrl.policy import CompletionsServerPolicy, TinkerPolicy, load_chat_template
-from scottyrl.tinker_adapter import make_service_client
-from scottyrl.types import load_tasks
+from agent_training.agents import AGENT_REGISTRY
+from agent_training.config import load_config
+from agent_training.envs import make_env_factory
+from agent_training.evaluate import evaluate_policy
+from agent_training.policy import CompletionsServerPolicy, TinkerPolicy, load_chat_template
+from agent_training.tinker_adapter import make_service_client
+from agent_training.types import load_tasks
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 

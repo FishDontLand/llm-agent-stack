@@ -9,9 +9,9 @@ import os
 import modal
 from dotenv import load_dotenv
 
-from workflow.generate import AGENTS
+from agent_evaluation.workflow.generate import AGENTS
 
-SECRET_NAME = "hw2-generation-endpoints"
+SECRET_NAME = "agent-eval-generation-endpoints"
 
 
 def endpoint_registry() -> dict[str, dict[str, str]]:

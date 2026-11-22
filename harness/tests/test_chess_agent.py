@@ -1,13 +1,13 @@
-"""Fast, offline tests for the student-implemented chess tool."""
+"""Offline tests for the chess agent and its tools."""
 
 import json
 
 import httpx
 import pytest
 
-from assignment.agent import ChessAgent
-from assignment.agent.chess_agent import format_chess_state
-from assignment.agent.tools import PLAY_MOVE_TOOL
+from agent_harness.agent import ChessAgent
+from agent_harness.agent.chess_agent import format_chess_state
+from agent_harness.agent.tools import PLAY_MOVE_TOOL
 
 
 INITIAL_STATE = {

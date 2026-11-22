@@ -1,8 +1,8 @@
 """Entry point for synchronous training (Parts 2 and 4.1, given).
 
 Examples:
-  python scripts/train_sync.py --config configs/p2a_number_search_reinforce.yaml
-  python scripts/train_sync.py --config configs/p2b_number_search_grpo.yaml \
+  python scripts/train_sync.py --config configs/number_search_reinforce.yaml
+  python scripts/train_sync.py --config configs/number_search_grpo.yaml \
       --set train.lr=2e-5
 """
 
@@ -12,17 +12,17 @@ import argparse
 import asyncio
 from pathlib import Path
 
-from scottyrl.config import (
+from agent_training.config import (
     check_run_name_available,
     checkpoints_manifest_path,
     load_config,
     resume_marker_path,
 )
-from scottyrl.envs import make_env_factory
-from scottyrl.metrics import MetricsLogger
-from scottyrl.tinker_adapter import TinkerSession, write_checkpoints_manifest
-from scottyrl.train.sync import SyncTrainer
-from scottyrl.types import load_tasks
+from agent_training.envs import make_env_factory
+from agent_training.metrics import MetricsLogger
+from agent_training.tinker_adapter import TinkerSession, write_checkpoints_manifest
+from agent_training.train.sync import SyncTrainer
+from agent_training.types import load_tasks
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
@@ -75,7 +75,7 @@ async def main() -> None:
         model_cfg, train_cfg, logger,
     )
     try:
-        # Step-0 baseline (given): evaluate the untrained policy before any
+        # Step-0 baseline: evaluate the untrained policy before any
         # update, so the eval curve starts from a real baseline instead of
         # first appearing at cfg.eval_every. train() only handles the
         # periodic evaluations. A resumed run already has its baseline in
@@ -89,7 +89,7 @@ async def main() -> None:
         await trainer.train()
     finally:
         # What this run saved on the Tinker service (sampler snapshots and
-        # resumable state); packaging and grading read final_sampler_path.
+        # resumable state); checkpoint consumers read final_sampler_path.
         write_checkpoints_manifest(
             session, train_cfg.run_name, checkpoints_manifest_path(train_cfg)
         )
